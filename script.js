@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!user || !user.id) return;
     document.cookie = 'looma_uid=' + encodeURIComponent(user.id) + '; path=/; max-age=31536000; SameSite=Lax';
     try {
-      localStorage.setItem('looma_session_v5', user.id);
+      localStorage.setItem('looma_session_v6', user.id);
       const lightUser = Object.assign({}, user, { avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)' });
       localStorage.setItem('looma_cached_user', JSON.stringify(lightUser));
       localStorage.setItem('looma_cached_user_full', JSON.stringify(user));
@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function getSavedSessionId() {
     let id = null;
-    try { id = localStorage.getItem('looma_session_v5'); } catch (e) {}
+    try { id = localStorage.getItem('looma_session_v6'); } catch (e) {}
     if (!id) {
       const m = document.cookie.match(/(?:^|;\s*)looma_uid=([^;]+)/);
       if (m) id = decodeURIComponent(m);
@@ -34,11 +34,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearSession() {
     try {
-      localStorage.removeItem('looma_session_v5');
+      localStorage.removeItem('looma_session_v6');
       localStorage.removeItem('looma_cached_user');
       localStorage.removeItem('looma_cached_user_full');
     } catch (e) {}
     document.cookie = 'looma_uid=; path=/; max-age=0';
+  }
+
+  function loadLocalBackup() {
+    try { return JSON.parse(localStorage.getItem('looma_kv_backup') || '{}'); } catch (e) { return {}; }
+  }
+
+  function saveLocalBackup(map) {
+    try { localStorage.setItem('looma_kv_backup', JSON.stringify(map)); } catch (e) {}
   }
 
   const pathToDocId = p => encodeURIComponent(p.replace(/\//g, '__'));
@@ -60,7 +68,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         _kvCache = map;
         _kvCacheTs = Date.now();
+        saveLocalBackup(map);
         return map;
+      } catch (err) {
+        if (!_kvCache) _kvCache = loadLocalBackup();
+        throw err;
       } finally {
         _kvInFlight = null;
       }
@@ -69,7 +81,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function fbGet(path) {
-    const map = await fetchAllKV(false);
+    let map = _kvCache || loadLocalBackup();
+    try { map = await fetchAllKV(false); } catch (e) {}
     const prefix = path.replace(/\//g, '__');
     if (Object.prototype.hasOwnProperty.call(map, prefix)) return map[prefix];
     const result = {};
@@ -95,11 +108,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (parts.at(0) === 'messages' && parts.length === 4) {
       const parentPath = parts.slice(0, 3).join('/');
       const parentKey = parentPath.replace(/\//g, '__');
-      const map = await fetchAllKV(false);
+      let map = _kvCache || loadLocalBackup();
+      try { map = await fetchAllKV(false); } catch (e) {}
       const parentObj = Object.assign({}, map[parentKey] || {});
       parentObj[parts.at(3)] = data;
       return fbSet(parentPath, parentObj);
     }
+    const key = path.replace(/\//g, '__');
+    if (!_kvCache) _kvCache = loadLocalBackup();
+    _kvCache[key] = data;
+    saveLocalBackup(_kvCache);
+
     const docId = pathToDocId(path);
     const res = await fetch(FS_URL + '/' + docId, {
       method: 'PATCH',
@@ -107,17 +126,17 @@ document.addEventListener('DOMContentLoaded', () => {
       body: JSON.stringify({ fields: { v: { stringValue: JSON.stringify(data) } } })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    if (_kvCache) _kvCache[path.replace(/\//g, '__')] = data;
     return data;
   }
 
   async function fbDel(path) {
     const prefix = path.replace(/\//g, '__');
-    const map = await fetchAllKV(false);
+    const map = _kvCache || loadLocalBackup();
     const keysToDel = Object.keys(map).filter(k => k === prefix || k.startsWith(prefix + '__'));
     if (keysToDel.length === 0) keysToDel.push(prefix);
-    await Promise.all(keysToDel.map(k => fetch(FS_URL + '/' + encodeURIComponent(k), { method: 'DELETE' })));
-    if (_kvCache) keysToDel.forEach(k => delete _kvCache[k]);
+    keysToDel.forEach(k => delete map[k]);
+    saveLocalBackup(map);
+    await Promise.all(keysToDel.map(k => fetch(FS_URL + '/' + encodeURIComponent(k), { method: 'DELETE' }).catch(() => {})));
   }
 
   const USER_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
@@ -207,16 +226,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       } else if (type === 'call') {
         [523.25, 659.25].forEach((freq, i) => {
-          const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-          osc.type = 'sine'; osc.frequency.setValueAtTime(freq, now + i * 0.14);
-          gain.gain.setValueAtTime(0.08, now + i * 0.14); gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.14 + 0.15);
-          osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now + i * 0.14); osc.stop(now + i * 0.14 + 0.15);
-        });
-      } else if (type === 'ring') {
-        [0, 0.42].forEach(delay => {
-          const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-          osc.type = 'sine'; osc.frequency.setValueAtTime(425, now + delay);
-          gain.gain.setValueAtTime(0.001, now + delay);
+const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+osc.type = 'sine'; osc.frequency.setValueAtTime(freq, now + i * 0.14);
+gain.gain.setValueAtTime(0.08, now + i * 0.14); gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.14 + 0.15);
+osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now + i * 0.14); osc.stop(now + i * 0.14 + 0.15);
+});
+} else if (type === 'ring') {
+[0, 0.42].forEach(delay => {
+const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+osc.type = 'sine'; osc.frequency.setValueAtTime(425, now + delay);
+gain.gain.setValueAtTime(0.001, now + delay);
 gain.gain.linearRampToValueAtTime(0.09, now + delay + 0.03);
 gain.gain.setValueAtTime(0.09, now + delay + 0.28);
 gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.34);
@@ -270,7 +289,8 @@ if (!currentUser) return [];
 return channels.filter(c => c.roles && c.roles[currentUser.id]);
 }
 async function loadAllFromServer() {
-await fetchAllKV(true);
+let cloudOk = true;
+try { await fetchAllKV(true); } catch (e) { cloudOk = false; }
 const [uData, cData, mData] = await Promise.all([
 fbGet('users'),
 fbGet('channels'),
@@ -285,7 +305,7 @@ status: 'Создатель Looma', bio: 'Официальный аккаунт 
 banner: 'linear-gradient(135deg,#b71c1c,#ffd740)'
 });
 accounts.push(ownerAcc);
-await saveUserDB(ownerAcc);
+saveUserDB(ownerAcc).catch(() => {});
 }
 channels = cData ? Object.values(cData) : [];
 chatsData = {};
@@ -301,6 +321,7 @@ const myTextChs = getMyChannels().filter(c => c.type !== 'voice');
 if (activeChat && !myTextChs.some(c => c.id === activeChat)) {
 activeChat = myTextChs.length ? myTextChs.at(0).id : null;
 }
+return cloudOk;
 }
 let activeUserId = getSavedSessionId();
 currentUser = accounts.find(a => a.id === activeUserId) || null;
@@ -347,99 +368,105 @@ document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'))
 btn.classList.add('active');
 loginMethod = btn.dataset.method;
 $('authLogin').type = loginMethod === 'email' ? 'text' : 'tel';
-$('authLogin').placeholder = loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)';
-$('authLogin').value = '';
-};
-});
-function applyTheme(user) {
-if (!user) return;
-soundPack = user.soundPack || 'cyber';
-document.documentElement.style.setProperty('--green', user.themeAccent || '#00e676');
-document.documentElement.style.setProperty('--msg-size', user.msgSize || '15px');
-document.documentElement.style.setProperty('--ava-radius', user.avaRadius || '50%');
-document.body.classList.remove('fx-neon', 'fx-cyber', 'fx-minimal', 'bg-default', 'bg-oled', 'bg-midnight');
-document.body.classList.add('fx-' + (user.fxMode || 'neon'));
-document.body.classList.add('bg-' + (user.bgTheme || 'default'));
-document.querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('active', b.dataset.accent === user.themeAccent));
-document.querySelectorAll('.bg-opt').forEach(b => b.classList.toggle('active', b.dataset.bg === (user.bgTheme || 'default')));
-document.querySelectorAll('.font-opt').forEach(b => b.classList.toggle('active', b.dataset.size === user.msgSize));
-document.querySelectorAll('.shape-opt').forEach(b => b.classList.toggle('active', b.dataset.radius === user.avaRadius));
-document.querySelectorAll('.fx-opt').forEach(b => b.classList.toggle('active', b.dataset.fx === user.fxMode));
-document.querySelectorAll('.sound-opt').forEach(b => b.classList.toggle('active', b.dataset.sound === soundPack));
-}
-function enterLooma(user, silent) {
-activeUserId = user.id;
-currentUser = user;
-saveSession(user);
-applyTheme(currentUser);
-updateMyUI();
-renderChannels();
-renderFriendsTab();
-renderMessages();
-renderMembers();
-$('authOverlay').classList.add('hidden');
-$('appRoot').classList.remove('hidden');
-if (!silent) {
-const splash = $('welcomeSplash');
-if (splash) {
-$('welcomeUserNick').textContent = '@' + user.nick;
-splash.classList.remove('hidden');
-setTimeout(() => splash.classList.add('hidden'), 1700);
-}
-playSound('login');
-}
-}
-$('authForm').onsubmit = async e => {
-e.preventDefault();
-const btn = $('authSubmitBtn');
-const rawLogin = $('authLogin').value.trim();
-const pass = $('authPass').value.trim();
-$('authError').textContent = '';
-btn.disabled = true;
-btn.textContent = isRegister ? 'Создание аккаунта...' : 'Вход...';
-try {
-await loadAllFromServer();
-if (isRegister) {
-const email = rawLogin.toLowerCase();
-const phone = normPhone($('authRegPhone').value);
-const nick = $('authNick').value.trim();
-if (!nick) { playSound('error'); return ($('authError').textContent = 'Введите никнейм!'); }
-if (!email && !phone) { playSound('error'); return ($('authError').textContent = 'Укажите хотя бы почту или телефон!'); }
-if (email && accounts.some(a => a.email && a.email.toLowerCase() === email)) { playSound('error'); return ($('authError').textContent = 'Эта почта уже привязана!'); }
-if (phone && accounts.some(a => a.phone && normPhone(a.phone) === phone)) { playSound('error'); return ($('authError').textContent = 'Этот телефон уже привязан!'); }
-if (accounts.some(a => a.nick.toLowerCase() === nick.toLowerCase())) { playSound('error'); return ($('authError').textContent = 'Никнейм уже занят!'); }
-const newUser = normUserObj({
-id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass
-});
-const { error } = await saveUserDB(newUser);
-if (error) {
-playSound('error');
-return ($('authError').textContent = 'Ошибка сохранения: ' + error.message);
-}
-accounts.push(newUser);
-enterLooma(newUser, false);
-} else {
-const qLower = rawLogin.toLowerCase();
-const qPhone = normPhone(rawLogin);
-const found = accounts.find(a =>
-(a.email && a.email.toLowerCase() === qLower) ||
-(a.phone && qPhone && normPhone(a.phone) === qPhone) ||
-a.nick.toLowerCase() === qLower
-);
-if (!found || (found.pass || '').trim() !== pass) {
-playSound('error');
-return ($('authError').textContent = 'Неверные данные входа или пароль!');
-}
-enterLooma(found, false);
-}
-} catch (err) {
-playSound('error');
-$('authError').textContent = 'Ошибка соединения с сервером: ' + err.message;
-} finally {
-btn.disabled = false;
-btn.textContent = isRegister ? 'Создать единый аккаунт' : 'Войти';
-}
-};
+      $('authLogin').placeholder = loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)';
+      $('authLogin').value = '';
+    };
+  });
+
+  function applyTheme(user) {
+    if (!user) return;
+    soundPack = user.soundPack || 'cyber';
+    document.documentElement.style.setProperty('--green', user.themeAccent || '#00e676');
+    document.documentElement.style.setProperty('--msg-size', user.msgSize || '15px');
+    document.documentElement.style.setProperty('--ava-radius', user.avaRadius || '50%');
+    document.body.classList.remove('fx-neon', 'fx-cyber', 'fx-minimal', 'bg-default', 'bg-oled', 'bg-midnight');
+    document.body.classList.add('fx-' + (user.fxMode || 'neon'));
+    document.body.classList.add('bg-' + (user.bgTheme || 'default'));
+
+    document.querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('active', b.dataset.accent === user.themeAccent));
+    document.querySelectorAll('.bg-opt').forEach(b => b.classList.toggle('active', b.dataset.bg === (user.bgTheme || 'default')));
+    document.querySelectorAll('.font-opt').forEach(b => b.classList.toggle('active', b.dataset.size === user.msgSize));
+    document.querySelectorAll('.shape-opt').forEach(b => b.classList.toggle('active', b.dataset.radius === user.avaRadius));
+    document.querySelectorAll('.fx-opt').forEach(b => b.classList.toggle('active', b.dataset.fx === user.fxMode));
+    document.querySelectorAll('.sound-opt').forEach(b => b.classList.toggle('active', b.dataset.sound === soundPack));
+  }
+
+  function enterLooma(user, silent) {
+    activeUserId = user.id;
+    currentUser = user;
+    saveSession(user);
+    applyTheme(currentUser);
+    updateMyUI();
+    renderChannels();
+    renderFriendsTab();
+    renderMessages();
+    renderMembers();
+    $('authOverlay').classList.add('hidden');
+    $('appRoot').classList.remove('hidden');
+    if (!silent) {
+      const splash = $('welcomeSplash');
+      if (splash) {
+        $('welcomeUserNick').textContent = '@' + user.nick;
+        splash.classList.remove('hidden');
+        setTimeout(() => splash.classList.add('hidden'), 1700);
+      }
+      playSound('login');
+    }
+  }
+
+  $('authForm').onsubmit = async e => {
+    e.preventDefault();
+    const btn = $('authSubmitBtn');
+    const rawLogin = $('authLogin').value.trim();
+    const pass = $('authPass').value.trim();
+    $('authError').textContent = '';
+
+    btn.disabled = true;
+    btn.textContent = isRegister ? 'Создание аккаунта...' : 'Вход...';
+
+    try {
+      await loadAllFromServer();
+
+      if (isRegister) {
+        const email = rawLogin.toLowerCase();
+        const phone = normPhone($('authRegPhone').value);
+        const nick = $('authNick').value.trim();
+        if (!nick) { playSound('error'); return ($('authError').textContent = 'Введите никнейм!'); }
+        if (!email && !phone) { playSound('error'); return ($('authError').textContent = 'Укажите хотя бы почту или телефон!'); }
+        if (email && accounts.some(a => a.email && a.email.toLowerCase() === email)) { playSound('error'); return ($('authError').textContent = 'Эта почта уже привязана!'); }
+        if (phone && accounts.some(a => a.phone && normPhone(a.phone) === phone)) { playSound('error'); return ($('authError').textContent = 'Этот телефон уже привязан!'); }
+        if (accounts.some(a => a.nick.toLowerCase() === nick.toLowerCase())) { playSound('error'); return ($('authError').textContent = 'Никнейм уже занят!'); }
+
+        const newUser = normUserObj({
+          id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass
+        });
+
+        await saveUserDB(newUser);
+        accounts.push(newUser);
+        enterLooma(newUser, false);
+      } else {
+        const qLower = rawLogin.toLowerCase();
+        const qPhone = normPhone(rawLogin);
+        const found = accounts.find(a =>
+          (a.email && a.email.toLowerCase() === qLower) ||
+          (a.phone && qPhone && normPhone(a.phone) === qPhone) ||
+          a.nick.toLowerCase() === qLower
+        );
+
+        if (!found || (found.pass || '').trim() !== pass) {
+          playSound('error');
+          return ($('authError').textContent = 'Неверные данные входа или пароль!');
+        }
+        enterLooma(found, false);
+      }
+    } catch (err) {
+      playSound('error');
+      $('authError').textContent = 'Ошибка соединения с сервером: ' + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = isRegister ? 'Создать единый аккаунт' : 'Войти';
+    }
+  };
 // --- КОНЕЦ ЧАСТИ 1 ---
 // --- НАЧАЛО ЧАСТИ 2 ---
   let tempAva = null, tempBanner = '', tempColor = '#ffffff';
