@@ -1,6 +1,6 @@
-// --- НАЧАЛО ЧАСТИ 1 ---
+/// --- НАЧАЛО ЧАСТИ 1 ---
 document.addEventListener('DOMContentLoaded', () => {
-  const FB_URL = 'https://firebasedatabase.app';
+  const FS_URL = 'https://googleapis.com';
 
   const $ = id => document.getElementById(id);
 
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!user || !user.id) return;
     document.cookie = 'looma_uid=' + encodeURIComponent(user.id) + '; path=/; max-age=31536000; SameSite=Lax';
     try {
-      localStorage.setItem('looma_session_v4', user.id);
+      localStorage.setItem('looma_session_v5', user.id);
       const lightUser = Object.assign({}, user, { avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)' });
       localStorage.setItem('looma_cached_user', JSON.stringify(lightUser));
       localStorage.setItem('looma_cached_user_full', JSON.stringify(user));
@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function getSavedSessionId() {
     let id = null;
-    try { id = localStorage.getItem('looma_session_v4'); } catch (e) {}
+    try { id = localStorage.getItem('looma_session_v5'); } catch (e) {}
     if (!id) {
       const m = document.cookie.match(/(?:^|;\s*)looma_uid=([^;]+)/);
       if (m) id = decodeURIComponent(m);
@@ -34,32 +34,90 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearSession() {
     try {
-      localStorage.removeItem('looma_session_v4');
+      localStorage.removeItem('looma_session_v5');
       localStorage.removeItem('looma_cached_user');
       localStorage.removeItem('looma_cached_user_full');
     } catch (e) {}
     document.cookie = 'looma_uid=; path=/; max-age=0';
   }
 
+  const pathToDocId = p => encodeURIComponent(p.replace(/\//g, '__'));
+  let _kvCache = null, _kvCacheTs = 0, _kvInFlight = null;
+
+  async function fetchAllKV(force) {
+    if (!force && _kvCache && Date.now() - _kvCacheTs < 650) return _kvCache;
+    if (_kvInFlight) return _kvInFlight;
+    _kvInFlight = (async () => {
+      try {
+        const res = await fetch(FS_URL + '?pageSize=500');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const json = await res.json();
+        const map = {};
+        (json.documents || []).forEach(doc => {
+          const id = decodeURIComponent(doc.name.split('/').pop());
+          const raw = doc.fields && doc.fields.v && doc.fields.v.stringValue;
+          if (raw) { try { map[id] = JSON.parse(raw); } catch (e) {} }
+        });
+        _kvCache = map;
+        _kvCacheTs = Date.now();
+        return map;
+      } finally {
+        _kvInFlight = null;
+      }
+    })();
+    return _kvInFlight;
+  }
+
   async function fbGet(path) {
-    const res = await fetch(FB_URL + '/' + path + '.json');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return await res.json();
+    const map = await fetchAllKV(false);
+    const prefix = path.replace(/\//g, '__');
+    if (Object.prototype.hasOwnProperty.call(map, prefix)) return map[prefix];
+    const result = {};
+    let foundAny = false;
+    const pWithSep = prefix + '__';
+    Object.entries(map).forEach(([k, val]) => {
+      if (k.startsWith(pWithSep)) {
+        foundAny = true;
+        const rest = k.slice(pWithSep.length).split('__');
+        let cur = result;
+        for (let i = 0; i < rest.length - 1; i++) {
+          if (!cur[rest[i]] || typeof cur[rest[i]] !== 'object') cur[rest[i]] = {};
+          cur = cur[rest[i]];
+        }
+        cur[rest[rest.length - 1]] = val;
+      }
+    });
+    return foundAny ? result : null;
   }
 
   async function fbSet(path, data) {
-    const res = await fetch(FB_URL + '/' + path + '.json', {
-      method: 'PUT',
+    const parts = path.split('/');
+    if (parts[0] === 'messages' && parts.length === 4) {
+      const parentPath = parts.slice(0, 3).join('/');
+      const parentKey = parentPath.replace(/\//g, '__');
+      const map = await fetchAllKV(false);
+      const parentObj = Object.assign({}, map[parentKey] || {});
+      parentObj[parts[3]] = data;
+      return fbSet(parentPath, parentObj);
+    }
+    const docId = pathToDocId(path);
+    const res = await fetch(FS_URL + '/' + docId, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify({ fields: { v: { stringValue: JSON.stringify(data) } } })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    return await res.json();
+    if (_kvCache) _kvCache[path.replace(/\//g, '__')] = data;
+    return data;
   }
 
   async function fbDel(path) {
-    const res = await fetch(FB_URL + '/' + path + '.json', { method: 'DELETE' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const prefix = path.replace(/\//g, '__');
+    const map = await fetchAllKV(false);
+    const keysToDel = Object.keys(map).filter(k => k === prefix || k.startsWith(prefix + '__'));
+    if (keysToDel.length === 0) keysToDel.push(prefix);
+    await Promise.all(keysToDel.map(k => fetch(FS_URL + '/' + encodeURIComponent(k), { method: 'DELETE' })));
+    if (_kvCache) keysToDel.forEach(k => delete _kvCache[k]);
   }
 
   const USER_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
@@ -159,40 +217,38 @@ document.addEventListener('DOMContentLoaded', () => {
           const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
           osc.type = 'sine'; osc.frequency.setValueAtTime(425, now + delay);
           gain.gain.setValueAtTime(0.001, now + delay);
-          gain.gain.linearRampToValueAtTime(0.09, now + delay + 0.03);
-          gain.gain.setValueAtTime(0.09, now + delay + 0.28);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.34);
-          osc.connect(gain); gain.connect(audioCtx.destination);
-          osc.start(now + delay); osc.stop(now + delay + 0.35);
-        });
-      } else if (type === 'pop') {
-        const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-        osc.type = 'sine'; osc.frequency.setValueAtTime(500, now); osc.frequency.exponentialRampToValueAtTime(950, now + 0.06);
-        gain.gain.setValueAtTime(0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-        osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now); osc.stop(now + 0.06);
-      } else if (type === 'click') {
-        const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-        osc.type = pack === 'retro' ? 'square' : (pack === 'soft' ? 'sine' : 'triangle');
-        osc.frequency.setValueAtTime(pack === 'soft' ? 240 : 160, now);
-        gain.gain.setValueAtTime(pack === 'retro' ? 0.04 : 0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
-        osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now); osc.stop(now + 0.045);
-      } else if (type === 'error') {
-        const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(190, now); osc.frequency.linearRampToValueAtTime(130, now + 0.22);
-        gain.gain.setValueAtTime(0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-        osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now); osc.stop(now + 0.22);
-      }
-    } catch (e) {}
-  }
-
-  document.addEventListener('click', e => {
-    if (e.target.closest('button') || e.target.classList.contains('ch-item') || e.target.classList.contains('icon-mini')) playSound('click');
-  });
-
-  function normUserObj(u) {
-    return {
-      id: u.id, isAdmin: !!u.isAdmin, nick: u.nick || 'User', email: u.email || '', phone: u.phone || '', pass: u.pass || '',
-      nickColor: u.nickColor || '#ffffff', themeAccent: u.themeAccent || '#00e676', bgTheme: u.bgTheme || 'default',
+gain.gain.linearRampToValueAtTime(0.09, now + delay + 0.03);
+gain.gain.setValueAtTime(0.09, now + delay + 0.28);
+gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.34);
+osc.connect(gain); gain.connect(audioCtx.destination);
+osc.start(now + delay); osc.stop(now + delay + 0.35);
+});
+} else if (type === 'pop') {
+const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+osc.type = 'sine'; osc.frequency.setValueAtTime(500, now); osc.frequency.exponentialRampToValueAtTime(950, now + 0.06);
+gain.gain.setValueAtTime(0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now); osc.stop(now + 0.06);
+} else if (type === 'click') {
+const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+osc.type = pack === 'retro' ? 'square' : (pack === 'soft' ? 'sine' : 'triangle');
+osc.frequency.setValueAtTime(pack === 'soft' ? 240 : 160, now);
+gain.gain.setValueAtTime(pack === 'retro' ? 0.04 : 0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now); osc.stop(now + 0.045);
+} else if (type === 'error') {
+const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+osc.type = 'sawtooth'; osc.frequency.setValueAtTime(190, now); osc.frequency.linearRampToValueAtTime(130, now + 0.22);
+gain.gain.setValueAtTime(0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now); osc.stop(now + 0.22);
+}
+} catch (e) {}
+}
+document.addEventListener('click', e => {
+if (e.target.closest('button') || e.target.classList.contains('ch-item') || e.target.classList.contains('icon-mini')) playSound('click');
+});
+function normUserObj(u) {
+return {
+id: u.id, isAdmin: !!u.isAdmin, nick: u.nick || 'User', email: u.email || '', phone: u.phone || '', pass: u.pass || '',
+nickColor: u.nickColor || '#ffffff', themeAccent: u.themeAccent || '#00e676', bgTheme: u.bgTheme || 'default',
 soundPack: u.soundPack || 'cyber', msgSize: u.msgSize || '15px', avaRadius: u.avaRadius || '50%',
 fxMode: u.fxMode || 'neon', status: u.status || 'В сети', bio: u.bio || '',
 avatarImg: u.avatarImg || null, banner: u.banner || 'linear-gradient(135deg,#1b2838,#7c4dff)',
@@ -214,6 +270,7 @@ if (!currentUser) return [];
 return channels.filter(c => c.roles && c.roles[currentUser.id]);
 }
 async function loadAllFromServer() {
+await fetchAllKV(true);
 const [uData, cData, mData] = await Promise.all([
 fbGet('users'),
 fbGet('channels'),
