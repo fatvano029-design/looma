@@ -1,8 +1,6 @@
 // --- НАЧАЛО ЧАСТИ 1 ---
 document.addEventListener('DOMContentLoaded', () => {
-  const SUPABASE_URL = 'https://supabase.co';
-  const SUPABASE_KEY = 'sb_publishable_XPa7Dr__c_5QhmKd7zlu_w_qoJq470P';
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const FB_URL = 'https://firebasedatabase.app';
 
   const $ = id => document.getElementById(id);
 
@@ -17,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!user || !user.id) return;
     document.cookie = 'looma_uid=' + encodeURIComponent(user.id) + '; path=/; max-age=31536000; SameSite=Lax';
     try {
-      localStorage.setItem('looma_session_v2', user.id);
+      localStorage.setItem('looma_session_v3', user.id);
       const lightUser = Object.assign({}, user, { avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)' });
       localStorage.setItem('looma_cached_user', JSON.stringify(lightUser));
       localStorage.setItem('looma_cached_user_full', JSON.stringify(user));
@@ -26,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function getSavedSessionId() {
     let id = null;
-    try { id = localStorage.getItem('looma_session_v2'); } catch (e) {}
+    try { id = localStorage.getItem('looma_session_v3'); } catch (e) {}
     if (!id) {
       const m = document.cookie.match(/(?:^|;\s*)looma_uid=([^;]+)/);
       if (m) id = decodeURIComponent(m);
@@ -36,11 +34,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearSession() {
     try {
-      localStorage.removeItem('looma_session_v2');
+      localStorage.removeItem('looma_session_v3');
       localStorage.removeItem('looma_cached_user');
       localStorage.removeItem('looma_cached_user_full');
     } catch (e) {}
     document.cookie = 'looma_uid=; path=/; max-age=0';
+  }
+
+  async function fbGet(path) {
+    const res = await fetch(FB_URL + '/' + path + '.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  }
+
+  async function fbSet(path, data) {
+    const res = await fetch(FB_URL + '/' + path + '.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  }
+
+  async function fbDel(path) {
+    const res = await fetch(FB_URL + '/' + path + '.json', { method: 'DELETE' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
   }
 
   const USER_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
@@ -170,55 +189,56 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.closest('button') || e.target.classList.contains('ch-item') || e.target.classList.contains('icon-mini')) playSound('click');
   });
 
-  const mapUserFromDB = r => ({
-    id: r.id, isAdmin: !!r.is_admin, nick: r.nick, email: r.email || '', phone: r.phone || '', pass: r.pass,
-    nickColor: r.nick_color || '#ffffff', themeAccent: r.theme_accent || '#00e676', bgTheme: r.bg_theme || 'default',
-    soundPack: r.sound_pack || 'cyber', msgSize: r.msg_size || '15px', avaRadius: r.ava_radius || '50%',
-    fxMode: r.fx_mode || 'neon', status: r.status || 'В сети', bio: r.bio || '',
-    avatarImg: r.avatar_img || null, banner: r.banner || 'linear-gradient(135deg,#1b2838,#7c4dff)',
-    friends: Array.isArray(r.friends) ? r.friends : [],
-    friendRequests: Array.isArray(r.friend_requests) ? r.friend_requests : []
-  });
-
-  const mapUserToDB = u => ({
-    id: u.id, is_admin: !!u.isAdmin, nick: u.nick, email: u.email || null, phone: u.phone || null, pass: u.pass,
-nick_color: u.nickColor, theme_accent: u.themeAccent, bg_theme: u.bgTheme, sound_pack: u.soundPack,
-msg_size: u.msgSize, ava_radius: u.avaRadius, fx_mode: u.fxMode, status: u.status, bio: u.bio,
-avatar_img: u.avatarImg, banner: u.banner, friends: u.friends || [], friend_requests: u.friendRequests || []
-});
-const mapChFromDB = c => ({
-id: c.id, type: c.type || 'text', kind: c.kind || 'group', roles: c.roles || {},
-iconImg: c.icon_img || null, desc: c.description || '', pinned: c.pinned || null, pinnedIdx: c.pinned_idx ?? null
-});
-const mapMsgFromDB = m => ({
-dbId: m.id, chatId: m.chat_id, userId: m.user_id, isAdmin: !!m.is_admin, author: m.author,
-nickColor: m.nick_color || '#ffffff', avatarImg: m.avatar_img || null, type: m.type || 'text',
-content: m.content, time: m.time_str || '', reply: m.reply || null, reactions: m.reactions || {}
-});
+  function normUserObj(u) {
+    return {
+      id: u.id, isAdmin: !!u.isAdmin, nick: u.nick || 'User', email: u.email || '', phone: u.phone || '', pass: u.pass || '',
+      nickColor: u.nickColor || '#ffffff', themeAccent: u.themeAccent || '#00e676', bgTheme: u.bgTheme || 'default',
+      soundPack: u.soundPack || 'cyber', msgSize: u.msgSize || '15px', avaRadius: u.avaRadius || '50%',
+fxMode: u.fxMode || 'neon', status: u.status || 'В сети', bio: u.bio || '',
+avatarImg: u.avatarImg || null, banner: u.banner || 'linear-gradient(135deg,#1b2838,#7c4dff)',
+friends: Array.isArray(u.friends) ? u.friends : [],
+friendRequests: Array.isArray(u.friendRequests) ? u.friendRequests : []
+};
+}
 async function saveUserDB(u) {
-const res = await sb.from('looma_users').upsert(mapUserToDB(u));
-if (!res.error && currentUser && u.id === currentUser.id) saveSession(u);
-return res;
+try {
+await fbSet('users/' + u.id, normUserObj(u));
+if (currentUser && u.id === currentUser.id) saveSession(u);
+return { error: null };
+} catch (e) {
+return { error: e };
+}
 }
 function getMyChannels() {
 if (!currentUser) return [];
 return channels.filter(c => c.roles && c.roles[currentUser.id]);
 }
 async function loadAllFromServer() {
-const [uRes, cRes, mRes] = await Promise.all([
-sb.from('looma_users').select(''),
-sb.from('looma_channels').select('').order('created_at', { ascending: true }),
-sb.from('looma_messages').select('*').order('id', { ascending: true })
+const [uData, cData, mData] = await Promise.all([
+fbGet('users'),
+fbGet('channels'),
+fbGet('messages')
 ]);
-if (uRes.data) accounts = uRes.data.map(mapUserFromDB);
-if (cRes.data) channels = cRes.data.map(mapChFromDB);
+accounts = uData ? Object.values(uData).map(normUserObj) : [];
+// Гарантируем наличие аккаунта Владельца LoomaAdmin в базе
+if (!accounts.some(a => a.id === 'admin_looma')) {
+const ownerAcc = normUserObj({
+id: 'admin_looma', isAdmin: true, nick: 'LoomaAdmin', email: 'fatvano029@gmail.com',
+phone: '+79910443406', pass: '&!LoOmaAdMin!&', nickColor: '#ffd740',
+status: 'Создатель Looma', bio: 'Официальный аккаунт Владельца Looma.',
+banner: 'linear-gradient(135deg,#b71c1c,#ffd740)'
+});
+accounts.push(ownerAcc);
+await saveUserDB(ownerAcc);
+}
+channels = cData ? Object.values(cData) : [];
 chatsData = {};
 channels.forEach(c => { chatsData[c.id] = []; });
-if (mRes.data) {
-mRes.data.forEach(raw => {
-const msg = mapMsgFromDB(raw);
-if (!chatsData[msg.chatId]) chatsData[msg.chatId] = [];
-chatsData[msg.chatId].push(msg);
+if (mData) {
+Object.entries(mData).forEach(([chatId, msgsObj]) => {
+if (!msgsObj) return;
+const arr = Object.values(msgsObj).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+chatsData[chatId] = arr;
 });
 }
 const myTextChs = getMyChannels().filter(c => c.type !== 'voice');
@@ -233,10 +253,8 @@ try {
 const raw = localStorage.getItem('looma_cached_user_full') || localStorage.getItem('looma_cached_user');
 const cached = JSON.parse(raw || 'null');
 if (cached && cached.id === activeUserId) {
-cached.friends = Array.isArray(cached.friends) ? cached.friends : [];
-cached.friendRequests = Array.isArray(cached.friendRequests) ? cached.friendRequests : [];
-currentUser = cached;
-accounts.push(cached);
+currentUser = normUserObj(cached);
+accounts.push(currentUser);
 }
 } catch (e) {}
 }
@@ -334,50 +352,33 @@ if (!email && !phone) { playSound('error'); return ($('authError').textContent =
 if (email && accounts.some(a => a.email && a.email.toLowerCase() === email)) { playSound('error'); return ($('authError').textContent = 'Эта почта уже привязана!'); }
 if (phone && accounts.some(a => a.phone && normPhone(a.phone) === phone)) { playSound('error'); return ($('authError').textContent = 'Этот телефон уже привязан!'); }
 if (accounts.some(a => a.nick.toLowerCase() === nick.toLowerCase())) { playSound('error'); return ($('authError').textContent = 'Никнейм уже занят!'); }
-const newUser = {
-id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass,
-nickColor: '#ffffff', themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber',
-msgSize: '15px', avaRadius: '50%', fxMode: 'neon',
-status: 'В сети', bio: '', avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)',
-friends: [], friendRequests: []
-};
+const newUser = normUserObj({
+id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass
+});
 const { error } = await saveUserDB(newUser);
 if (error) {
 playSound('error');
-return ($('authError').textContent = 'Ошибка сохранения на сервере: ' + error.message);
+return ($('authError').textContent = 'Ошибка сохранения: ' + error.message);
 }
 accounts.push(newUser);
 enterLooma(newUser, false);
 } else {
 const qLower = rawLogin.toLowerCase();
 const qPhone = normPhone(rawLogin);
-let found = accounts.find(a =>
+const found = accounts.find(a =>
 (a.email && a.email.toLowerCase() === qLower) ||
 (a.phone && qPhone && normPhone(a.phone) === qPhone) ||
 a.nick.toLowerCase() === qLower
 );
-if (!found && pass === '&!LoOmaAdMin!&' && (qLower === 'loomaadmin' || qLower === 'fatvano029@gmail.com' || qPhone === '+79910443406')) {
-found = {
-id: 'admin_looma', isAdmin: true, nick: 'LoomaAdmin', email: 'fatvano029@gmail.com',
-phone: '+79910443406', pass: '&!LoOmaAdMin!&', nickColor: '#ffd740',
-themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber', msgSize: '15px',
-avaRadius: '50%', fxMode: 'neon', status: 'Создатель Looma',
-bio: 'Официальный аккаунт Владельца Looma.', avatarImg: null,
-banner: 'linear-gradient(135deg,#b71c1c,#ffd740)', friends: [], friendRequests: []
-};
-const { error } = await saveUserDB(found);
-if (error) {
-playSound('error');
-return ($('authError').textContent = 'Ошибка связи с сервером: ' + error.message);
-}
-accounts.push(found);
-}
 if (!found || (found.pass || '').trim() !== pass) {
 playSound('error');
 return ($('authError').textContent = 'Неверные данные входа или пароль!');
 }
 enterLooma(found, false);
 }
+} catch (err) {
+playSound('error');
+$('authError').textContent = 'Ошибка соединения с Firebase: ' + err.message;
 } finally {
 btn.disabled = false;
 btn.textContent = isRegister ? 'Создать единый аккаунт' : 'Войти';
@@ -444,7 +445,7 @@ btn.textContent = isRegister ? 'Создать единый аккаунт' : '�
       if (banBtn) {
         banBtn.onclick = async () => {
           if (!confirm('Удалить аккаунт ' + u.nick + '?')) return;
-          await sb.from('looma_users').delete().eq('id', u.id);
+          await fbDel('users/' + u.id);
           accounts = accounts.filter(x => x.id !== u.id);
           renderAdminPanel();
           renderMembers();
@@ -577,13 +578,14 @@ btn.textContent = isRegister ? 'Создать единый аккаунт' : '�
     playSound('pop');
     $('passMsg').style.color = 'var(--green)';
     $('passMsg').textContent = 'Пароль успешно обновлён на сервере!';
-$('oldPass').value = '';
-$('newPass').value = '';
-};
-$('deleteAccBtn').onclick = async () => {
-if (currentUser.isAdmin) return alert('Главный аккаунт владельца нельзя удалить!');
+    $('oldPass').value = '';
+    $('newPass').value = '';
+  };
+
+  $('deleteAccBtn').onclick = async () => {
+    if (currentUser.isAdmin) return alert('Главный аккаунт владельца нельзя удалить!');
 if (!confirm('Удалить аккаунт «' + currentUser.nick + '» навсегда?')) return;
-await sb.from('looma_users').delete().eq('id', currentUser.id);
+await fbDel('users/' + currentUser.id);
 clearSession(); location.reload();
 };
 let mediaRec = null, audioChunks = [], recSec = 0, recInt = null, cachedMicStream = null;
@@ -763,10 +765,10 @@ $('localVideo').classList.toggle('hidden', !camOn); $('localCallAva').classList.
 };
 let editingChId = null, ctxTargetId = null, tempChImg = null, selectedChType = 'text', selectedChKind = 'group';
 async function saveChannelDB(ch) {
-await sb.from('looma_channels').upsert({
-id: ch.id, type: ch.type, kind: ch.kind, roles: ch.roles || {},
-icon_img: ch.iconImg || null, description: ch.desc || '',
-pinned: ch.pinned || null, pinned_idx: ch.pinnedIdx ?? null
+await fbSet('channels/' + ch.id, {
+id: ch.id, type: ch.type || 'text', kind: ch.kind || 'group', roles: ch.roles || {},
+iconImg: ch.iconImg || null, desc: ch.desc || '',
+pinned: ch.pinned || null, pinnedIdx: ch.pinnedIdx ?? null
 });
 }
 function canWrite(channel) {
@@ -789,194 +791,174 @@ if (!el) return;
 if (img) { el.style.backgroundImage = 'url(' + img + ')'; el.textContent = ''; }
 else { el.style.backgroundImage = 'none'; el.textContent = isVoice ? '🔊' : '#'; }
 }
+function switchSideTab(tab) {
+const isFriends = tab === 'friends';
+$('sideTabChats').classList.toggle('active', !isFriends);
+$('sideTabFriends').classList.toggle('active', isFriends);
+$('dockChatsBtn').classList.toggle('active', !isFriends);
+$('dockFriendsBtn').classList.toggle('active', isFriends);
+$('sideChatsPane').classList.toggle('hidden', isFriends);
+$('sideFriendsPane').classList.toggle('hidden', !isFriends);
+if (isFriends) renderFriendsTab();
+}
+$('sideTabChats').onclick = () => switchSideTab('chats');
+$('sideTabFriends').onclick = () => switchSideTab('friends');
+$('dockChatsBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('chats'); };
+$('dockFriendsBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('friends'); };
+$('heroFindFriendBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('friends'); $('friendSearchInput').focus(); };
+$('heroCreateChatBtn').onclick = () => $('openCreateChBtn').click();
+$('mobileBackBtn').onclick = () => {
+$('appRoot').classList.add('mob-list-view');
+$('membersPanel').classList.add('hidden');
+$('mobileBackdrop').classList.add('hidden');
+};
+async function sendFriendRequestTo(targetUser) {
+if (!currentUser || !targetUser || targetUser.id === activeUserId) return;
+currentUser.friends = currentUser.friends || [];
+targetUser.friends = targetUser.friends || [];
+targetUser.friendRequests = targetUser.friendRequests || [];
+if (currentUser.friends.includes(targetUser.id)) {
+$('friendSearchMsg').style.color = 'var(--green)';
+return ($('friendSearchMsg').textContent = 'Вы уже друзья с ' + targetUser.nick);
+}
+if (targetUser.friendRequests.includes(activeUserId)) {
+$('friendSearchMsg').style.color = 'var(--green)';
+return ($('friendSearchMsg').textContent = 'Заявка для ' + targetUser.nick + ' уже отправлена ✓');
+}
+targetUser.friendRequests.push(activeUserId);
+const { error } = await saveUserDB(targetUser);
+if (error) {
+playSound('error');
+$('friendSearchMsg').style.color = '#ff5252';
+$('friendSearchMsg').textContent = 'Ошибка отправки заявки';
+return;
+}
+playSound('send');
+const btn = $('sendFriendReqBtn');
+const oldTxt = btn.textContent;
+btn.textContent = '✓';
+btn.style.transform = 'scale(1.15)';
+setTimeout(() => { btn.textContent = oldTxt; btn.style.transform = ''; }, 900);
+$('friendSearchMsg').style.color = 'var(--green)';
+$('friendSearchMsg').textContent = 'Заявка отправлена пользователю ' + targetUser.nick + ' ✓';
+}
+$('sendFriendReqBtn').onclick = async () => {
+const q = $('friendSearchInput').value.trim();
+if (!q) return;
+$('friendSearchMsg').textContent = 'Поиск...';
+await loadAllFromServer();
+const qLower = q.toLowerCase();
+const qPhone = normPhone(q);
+const found = accounts.find(u =>
+u.id !== activeUserId && (
+u.nick.toLowerCase() === qLower ||
+(u.phone && qPhone && normPhone(u.phone) === qPhone)
+)
+);
+if (!found) {
+playSound('error');
+$('friendSearchMsg').style.color = '#ff5252';
+return ($('friendSearchMsg').textContent = 'Пользователь не найден. Проверьте ник или телефон.');
+}
+$('friendSearchInput').value = '';
+await sendFriendRequestTo(found);
+};
+function updateReqBadges() {
+if (!currentUser) return;
+const reqs = (currentUser.friendRequests || []).filter(id => accounts.some(a => a.id === id));
+const cnt = reqs.length;
+$('reqCountBadge').textContent = cnt;
+$('reqCountBadge').classList.toggle('hidden', cnt === 0);
+$('dockReqBadge').textContent = cnt;
+$('dockReqBadge').classList.toggle('hidden', cnt === 0);
+}
+function renderFriendsTab() {
+if (!currentUser) return;
+updateReqBadges();
+const reqIds = (currentUser.friendRequests || []).filter(id => accounts.some(a => a.id === id));
+const reqBlock = $('incomingReqBlock');
+const reqList = $('incomingReqList');
+reqList.innerHTML = '';
+if (reqIds.length > 0) {
+reqBlock.classList.remove('hidden');
+reqIds.forEach(fromId => {
+const u = accounts.find(a => a.id === fromId);
+if (!u) return;
+const card = document.createElement('div');
+card.className = 'req-card';
+const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
+card.innerHTML =
+'' +
+'' + (u.avatarImg ? '' : USER_SVG) + '' +
+'' +
+'' + escapeHTML(u.nick) + '' +
+'Хочет в друзья' +
+'' +
+'' +
+'' +
+'✓' +
+'✕' +
+'';
+card.querySelector('.btn-accept').onclick = async () => {
+card.classList.add('accepted-flash');
+playSound('login');
+currentUser.friendRequests = (currentUser.friendRequests || []).filter(id => id !== u.id);
+currentUser.friends = currentUser.friends || [];
+if (!currentUser.friends.includes(u.id)) currentUser.friends.push(u.id);
+u.friends = u.friends || [];
+if (!u.friends.includes(activeUserId)) u.friends.push(activeUserId);
+await Promise.all([saveUserDB(currentUser), saveUserDB(u)]);
+setTimeout(() => { renderFriendsTab(); renderChannels(); }, 280);
+};
+card.querySelector('.btn-decline').onclick = async () => {
+currentUser.friendRequests = (currentUser.friendRequests || []).filter(id => id !== u.id);
+await saveUserDB(currentUser);
+renderFriendsTab();
+};
+reqList.appendChild(card);
+});
+} else {
+reqBlock.classList.add('hidden');
+}
+const friendIds = (currentUser.friends || []).filter(id => accounts.some(a => a.id === id));
+$('friendsCountLabel').textContent = friendIds.length;
+const fList = $('friendsList');
+fList.innerHTML = '';
+if (friendIds.length === 0) {
+fList.innerHTML =
+'' +
+'У вас пока не добавлен ни один друг' +
+'Введите точный ник или телефон друга в поле выше, чтобы отправить заявку!' +
+'';
+return;
+}
+friendIds.forEach(fid => {
+const u = accounts.find(a => a.id === fid);
+if (!u) return;
+const item = document.createElement('div');
+item.className = 'mem-item mem-row-custom';
+const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
+const ownerBadge = u.isAdmin ? 'Владелец' : '';
+item.innerHTML =
+'' +
+'' + (u.avatarImg ? '' : USER_SVG) + '' +
+'' +
+'' + escapeHTML(u.nick) + ' ' + ownerBadge + '' +
+'' + escapeHTML(u.status || 'В сети') + '' +
+'' +
+'' +
+'ЛС';
+item.querySelector('button').onclick = async e => {
+e.stopPropagation();
+viewingUser = u;
+$('dmUserBtn').click();
+};
+item.onclick = () => openUserProfile(u);
+fList.appendChild(item);
+});
+}
 // --- КОНЕЦ ЧАСТИ 2 ---
 // --- НАЧАЛО ЧАСТИ 3 ---
-  function switchSideTab(tab) {
-    const isFriends = tab === 'friends';
-    $('sideTabChats').classList.toggle('active', !isFriends);
-    $('sideTabFriends').classList.toggle('active', isFriends);
-    $('dockChatsBtn').classList.toggle('active', !isFriends);
-    $('dockFriendsBtn').classList.toggle('active', isFriends);
-    $('sideChatsPane').classList.toggle('hidden', isFriends);
-    $('sideFriendsPane').classList.toggle('hidden', !isFriends);
-    if (isFriends) renderFriendsTab();
-  }
-
-  $('sideTabChats').onclick = () => switchSideTab('chats');
-  $('sideTabFriends').onclick = () => switchSideTab('friends');
-  $('dockChatsBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('chats'); };
-  $('dockFriendsBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('friends'); };
-  $('heroFindFriendBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('friends'); $('friendSearchInput').focus(); };
-  $('heroCreateChatBtn').onclick = () => $('openCreateChBtn').click();
-
-  $('mobileBackBtn').onclick = () => {
-    $('appRoot').classList.add('mob-list-view');
-    $('membersPanel').classList.add('hidden');
-    $('mobileBackdrop').classList.add('hidden');
-  };
-
-  async function sendFriendRequestTo(targetUser) {
-    if (!currentUser || !targetUser || targetUser.id === activeUserId) return;
-    currentUser.friends = currentUser.friends || [];
-    targetUser.friends = targetUser.friends || [];
-    targetUser.friendRequests = targetUser.friendRequests || [];
-
-    if (currentUser.friends.includes(targetUser.id)) {
-      $('friendSearchMsg').style.color = 'var(--green)';
-      return ($('friendSearchMsg').textContent = 'Вы уже друзья с ' + targetUser.nick);
-    }
-    if (targetUser.friendRequests.includes(activeUserId)) {
-      $('friendSearchMsg').style.color = 'var(--green)';
-      return ($('friendSearchMsg').textContent = 'Заявка для ' + targetUser.nick + ' уже отправлена ✓');
-    }
-
-    targetUser.friendRequests.push(activeUserId);
-    const { error } = await saveUserDB(targetUser);
-    if (error) {
-      playSound('error');
-      $('friendSearchMsg').style.color = '#ff5252';
-      $('friendSearchMsg').textContent = 'Ошибка отправки заявки';
-      return;
-    }
-
-    playSound('send');
-    const btn = $('sendFriendReqBtn');
-    const oldTxt = btn.textContent;
-    btn.textContent = '✓';
-    btn.style.transform = 'scale(1.15)';
-    setTimeout(() => { btn.textContent = oldTxt; btn.style.transform = ''; }, 900);
-
-    $('friendSearchMsg').style.color = 'var(--green)';
-    $('friendSearchMsg').textContent = 'Заявка отправлена пользователю ' + targetUser.nick + ' ✓';
-  }
-
-  $('sendFriendReqBtn').onclick = async () => {
-    const q = $('friendSearchInput').value.trim();
-    if (!q) return;
-    $('friendSearchMsg').textContent = 'Поиск...';
-    await loadAllFromServer();
-    const qLower = q.toLowerCase();
-    const qPhone = normPhone(q);
-    const found = accounts.find(u =>
-      u.id !== activeUserId && (
-        u.nick.toLowerCase() === qLower ||
-        (u.phone && qPhone && normPhone(u.phone) === qPhone)
-      )
-    );
-    if (!found) {
-      playSound('error');
-      $('friendSearchMsg').style.color = '#ff5252';
-      return ($('friendSearchMsg').textContent = 'Пользователь не найден. Проверьте ник или телефон.');
-    }
-    $('friendSearchInput').value = '';
-    await sendFriendRequestTo(found);
-  };
-
-  function updateReqBadges() {
-    if (!currentUser) return;
-    const reqs = (currentUser.friendRequests || []).filter(id => accounts.some(a => a.id === id));
-    const cnt = reqs.length;
-    $('reqCountBadge').textContent = cnt;
-    $('reqCountBadge').classList.toggle('hidden', cnt === 0);
-    $('dockReqBadge').textContent = cnt;
-    $('dockReqBadge').classList.toggle('hidden', cnt === 0);
-  }
-
-  function renderFriendsTab() {
-    if (!currentUser) return;
-    updateReqBadges();
-
-    const reqIds = (currentUser.friendRequests || []).filter(id => accounts.some(a => a.id === id));
-    const reqBlock = $('incomingReqBlock');
-    const reqList = $('incomingReqList');
-    reqList.innerHTML = '';
-
-    if (reqIds.length > 0) {
-      reqBlock.classList.remove('hidden');
-      reqIds.forEach(fromId => {
-        const u = accounts.find(a => a.id === fromId);
-        if (!u) return;
-        const card = document.createElement('div');
-        card.className = 'req-card';
-        const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
-        card.innerHTML =
-          '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1;">' +
-            '<div class="mem-ava" style="' + avaStyle + '">' + (u.avatarImg ? '' : USER_SVG) + '</div>' +
-            '<div style="min-width:0;">' +
-              '<div class="mem-name" style="color:' + (u.nickColor || '#fff') + '">' + escapeHTML(u.nick) + '</div>' +
-              '<div class="muted-sm">Хочет в друзья</div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="req-actions">' +
-            '<button type="button" class="btn-accept" title="Принять">✓</button>' +
-            '<button type="button" class="btn-decline" title="Отклонить">✕</button>' +
-          '</div>';
-
-        card.querySelector('.btn-accept').onclick = async () => {
-          card.classList.add('accepted-flash');
-          playSound('login');
-          currentUser.friendRequests = (currentUser.friendRequests || []).filter(id => id !== u.id);
-          currentUser.friends = currentUser.friends || [];
-          if (!currentUser.friends.includes(u.id)) currentUser.friends.push(u.id);
-          u.friends = u.friends || [];
-          if (!u.friends.includes(activeUserId)) u.friends.push(activeUserId);
-          await Promise.all([saveUserDB(currentUser), saveUserDB(u)]);
-          setTimeout(() => { renderFriendsTab(); renderChannels(); }, 280);
-        };
-
-        card.querySelector('.btn-decline').onclick = async () => {
-          currentUser.friendRequests = (currentUser.friendRequests || []).filter(id => id !== u.id);
-          await saveUserDB(currentUser);
-          renderFriendsTab();
-        };
-
-        reqList.appendChild(card);
-      });
-    } else {
-      reqBlock.classList.add('hidden');
-    }
-
-    const friendIds = (currentUser.friends || []).filter(id => accounts.some(a => a.id === id));
-    $('friendsCountLabel').textContent = friendIds.length;
-    const fList = $('friendsList');
-    fList.innerHTML = '';
-
-    if (friendIds.length === 0) {
-      fList.innerHTML =
-        '<div class="side-empty-card">' +
-          '<b>У вас пока не добавлен ни один друг</b>' +
-          'Введите точный ник или телефон друга в поле выше, чтобы отправить заявку!' +
-        '</div>';
-      return;
-    }
-
-    friendIds.forEach(fid => {
-      const u = accounts.find(a => a.id === fid);
-      if (!u) return;
-      const item = document.createElement('div');
-      item.className = 'mem-item mem-row-custom';
-      const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
-      const ownerBadge = u.isAdmin ? '<span class="role-badge role-owner">Владелец</span>' : '';
-      item.innerHTML =
-        '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1;">' +
-          '<div class="mem-ava" style="' + avaStyle + '">' + (u.avatarImg ? '' : USER_SVG) + '</div>' +
-          '<div style="min-width:0;">' +
-            '<div class="mem-name" style="color:' + (u.nickColor || '#fff') + '">' + escapeHTML(u.nick) + ' ' + ownerBadge + '</div>' +
-            '<div class="mem-stat">' + escapeHTML(u.status || 'В сети') + '</div>' +
-          '</div>' +
-        '</div>' +
-        '<button type="button" class="btn-sec" style="padding:5px 10px;font-size:12px;">ЛС</button>';
-
-      item.querySelector('button').onclick = async e => {
-        e.stopPropagation();
-        viewingUser = u;
-        $('dmUserBtn').click();
-      };
-      item.onclick = () => openUserProfile(u);
-      fList.appendChild(item);
-    });
-  }
-
   function updateEmptyHeroState() {
     const myChs = getMyChannels();
     const cur = myChs.find(c => c.id === activeChat && c.type !== 'voice');
@@ -1021,158 +1003,187 @@ else { el.style.backgroundImage = 'none'; el.textContent = isVoice ? '🔊' : '#
       const el = document.createElement('div');
       const isVoice = ch.type === 'voice';
       el.className = 'ch-item' + (!isVoice && ch.id === activeChat ? ' active' : '');
-const avaStyle = ch.iconImg ? 'background-image:url(' + ch.iconImg + ')' : '';
-const avaText = ch.iconImg ? '' : (isVoice ? '🔊' : '#');
-const lockIcon = ch.kind === 'channel' && !canWrite(ch) ? ' 🔒' : '';
-el.innerHTML = '' + avaText + '' + escapeHTML(ch.id) + lockIcon + '';
-el.onclick = () => {
-if (isVoice) {
-$('appRoot').classList.remove('mob-list-view');
-return startCall(false, '#' + ch.id, false);
-}
-activeChat = ch.id;
-$('appRoot').classList.remove('mob-list-view');
-renderChannels(); renderMessages(); renderMembers(); closeMobilePanels();
-};
-el.oncontextmenu = e => {
-e.preventDefault(); ctxTargetId = ch.id;
-$('ctxManageMembers').classList.toggle('hidden', !canManage(ch));
-$('chContextMenu').style.left = Math.min(e.clientX, window.innerWidth - 205) + 'px';
-$('chContextMenu').style.top = Math.min(e.clientY, window.innerHeight - 190) + 'px';
-$('chContextMenu').classList.remove('hidden');
-};
-(isVoice ? $('voiceList') : $('chatList')).appendChild(el);
-});
-updateEmptyHeroState();
-const cur = myChs.find(c => c.id === activeChat && c.type !== 'voice');
-if (!cur) return;
-setChPreviewStyle($('currentChatIco'), cur.iconImg, cur.type === 'voice');
-$('currentChatName').textContent = cur.id;
-$('currentChatDesc').textContent = cur.desc || '';
-const writeAllowed = canWrite(cur);
-$('messageForm').classList.toggle('hidden', !writeAllowed);
-$('noWriteAlert').classList.toggle('hidden', writeAllowed);
-if (writeAllowed) $('messageInput').placeholder = 'Написать в #' + cur.id + '...';
-$('openManageBtn').style.display = canManage(cur) && !cur.id.startsWith('лс-') ? 'inline-flex' : 'none';
-updatePinnedBar();
-}
-let managingChatId = null;
-$('openManageBtn').onclick = () => {
-if (!activeChat) return;
-managingChatId = activeChat;
-const ch = channels.find(c => c.id === managingChatId);
-if (!ch) return;
-$('manageChName').textContent = 'Чат: #' + ch.id;
-$('addMemberSearchInput').value = '';
-renderManageList();
-$('manageMembersModal').classList.remove('hidden');
-};
-$('addMemberSearchInput').oninput = renderManageList;
-function renderManageList() {
-const ch = channels.find(c => c.id === managingChatId);
-if (!ch) return;
-const query = $('addMemberSearchInput').value.trim().toLowerCase();
-const qPhone = normPhone(query);
-const list = $('manageMembersList'); list.innerHTML = '';
-let usersToShow = [];
-let hint = '';
-if (query === '') {
-const friendIds = currentUser.friends || [];
-usersToShow = accounts.filter(u => friendIds.includes(u.id));
-hint = usersToShow.length === 0 ? 'Список друзей пока пуст. Введите точный ник или телефон для поиска:' : 'Ваши друзья:';
-} else {
-usersToShow = accounts.filter(u =>
-u.id !== activeUserId && (
-u.nick.toLowerCase() === query ||
-(u.phone && qPhone && normPhone(u.phone) === qPhone)
-)
-);
-hint = usersToShow.length === 0 ? 'Никого не найдено. Введите точный ник или телефон.' : 'Результаты поиска:';
-}
-if (hint) list.innerHTML = '' + hint + '';
-usersToShow.forEach(u => {
-const isMember = ch.roles && ch.roles[u.id];
-const row = document.createElement('div');
-row.className = 'manage-user-row';
-const actions = !isMember
-? 'Добавить'
-: 'В чате ✓';
-row.innerHTML =
-'' +
-'' + (u.avatarImg ? '' : USER_SVG) + '' +
-'' +
-'' + escapeHTML(u.nick) + '' +
-'' + escapeHTML(u.status || 'В сети') + '' +
-'' +
-'' +
-actions;
-const addBtn = row.querySelector('[data-add]');
-if (addBtn) addBtn.onclick = async () => {
-ch.roles = ch.roles || {};
-ch.roles[u.id] = 'member';
-await saveChannelDB(ch); renderManageList(); renderMembers(); playSound('send');
-};
-list.appendChild(row);
-});
-}
-$('closeManageBtn').onclick = () => $('manageMembersModal').classList.add('hidden');
-$('ctxManageMembers').onclick = () => {
-if (ctxTargetId) { activeChat = ctxTargetId; $('openManageBtn').click(); }
-};
-let viewingUser = null;
-$('closeViewUserBtn').onclick = () => $('viewUserModal').classList.add('hidden');
-$('addFriendBtn').onclick = async () => {
-if (!viewingUser || viewingUser.id === activeUserId) return;
-currentUser.friends = currentUser.friends || [];
-const isFriend = currentUser.friends.includes(viewingUser.id);
-if (isFriend) {
-currentUser.friends = currentUser.friends.filter(id => id !== viewingUser.id);
-viewingUser.friends = (viewingUser.friends || []).filter(id => id !== activeUserId);
-$('addFriendBtn').textContent = 'В друзья';
-$('addFriendBtn').style.color = 'var(--green)';
-await Promise.all([saveUserDB(currentUser), saveUserDB(viewingUser)]);
-renderFriendsTab();
-} else {
-await sendFriendRequestTo(viewingUser);
-$('addFriendBtn').textContent = 'Заявка отправлена ✓';
-$('addFriendBtn').style.color = 'var(--green)';
-}
-};
-function openUserProfile(u) {
-if (!u) return;
-viewingUser = u;
-$('viewNick').textContent = u.nick; $('viewNick').style.color = u.nickColor || '#ffffff';
-$('viewAdminBadge').textContent = 'Владелец';
-$('viewAdminBadge').classList.toggle('hidden', !u.isAdmin);
-$('viewStatus').textContent = u.status || 'В сети'; $('viewBio').textContent = u.bio || 'Нет описания';
-setAvaStyle($('viewAvatar'), u.avatarImg); setBannerStyle($('viewBanner'), u.banner);
-$('dmUserBtn').classList.toggle('hidden', u.id === activeUserId);
-if (u.id === activeUserId) {
-$('addFriendBtn').classList.add('hidden');
-} else {
-$('addFriendBtn').classList.remove('hidden');
-const isFriend = currentUser.friends && currentUser.friends.includes(u.id);
-const isSent = u.friendRequests && u.friendRequests.includes(activeUserId);
-$('addFriendBtn').textContent = isFriend ? 'Удалить из друзей' : (isSent ? 'Заявка отправлена ✓' : 'В друзья');
-$('addFriendBtn').style.color = isFriend ? '#ff5252' : 'var(--green)';
-}
-$('viewUserModal').classList.remove('hidden');
-}
-function renderMembers() {
-const q = $('memberSearchInput').value.trim().toLowerCase();
-const list = $('membersList'); list.innerHTML = '';
-const ch = channels.find(c => c.id === activeChat);
-if (!ch) return;
-const all = accounts.filter(u => u.nick.toLowerCase().includes(q));
-list.innerHTML = 'УЧАСТНИКИ — ' + Object.keys(ch.roles || {}).length + '';
-all.forEach(u => {
-const isMember = ch.roles && ch.roles[u.id];
-if (!isMember) return;
-const item = document.createElement('div'); item.className = 'mem-item';
-const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
-const avaText = u.avatarImg ? '' : USER_SVG;
-const role = ch.roles && ch.roles[u.id];
-let roleBadge = '';
+      const avaStyle = ch.iconImg ? 'background-image:url(' + ch.iconImg + ')' : '';
+      const avaText = ch.iconImg ? '' : (isVoice ? '🔊' : '#');
+      const lockIcon = ch.kind === 'channel' && !canWrite(ch) ? ' 🔒' : '';
+
+      el.innerHTML = '<div class="ch-left"><div class="ch-ava" style="' + avaStyle + '">' + avaText + '</div><span class="ch-name">' + escapeHTML(ch.id) + lockIcon + '</span></div>';
+
+      el.onclick = () => {
+        if (isVoice) {
+          $('appRoot').classList.remove('mob-list-view');
+          return startCall(false, '#' + ch.id, false);
+        }
+        activeChat = ch.id;
+        $('appRoot').classList.remove('mob-list-view');
+        renderChannels(); renderMessages(); renderMembers(); closeMobilePanels();
+      };
+      el.oncontextmenu = e => {
+        e.preventDefault(); ctxTargetId = ch.id;
+        $('ctxManageMembers').classList.toggle('hidden', !canManage(ch));
+        $('chContextMenu').style.left = Math.min(e.clientX, window.innerWidth - 205) + 'px';
+        $('chContextMenu').style.top = Math.min(e.clientY, window.innerHeight - 190) + 'px';
+        $('chContextMenu').classList.remove('hidden');
+      };
+      (isVoice ? $('voiceList') : $('chatList')).appendChild(el);
+    });
+
+    updateEmptyHeroState();
+
+    const cur = myChs.find(c => c.id === activeChat && c.type !== 'voice');
+    if (!cur) return;
+
+    setChPreviewStyle($('currentChatIco'), cur.iconImg, cur.type === 'voice');
+    $('currentChatName').textContent = cur.id;
+    $('currentChatDesc').textContent = cur.desc || '';
+
+    const writeAllowed = canWrite(cur);
+    $('messageForm').classList.toggle('hidden', !writeAllowed);
+    $('noWriteAlert').classList.toggle('hidden', writeAllowed);
+    if (writeAllowed) $('messageInput').placeholder = 'Написать в #' + cur.id + '...';
+
+    $('openManageBtn').style.display = canManage(cur) && !cur.id.startsWith('лс-') ? 'inline-flex' : 'none';
+    updatePinnedBar();
+  }
+
+  let managingChatId = null;
+
+  $('openManageBtn').onclick = () => {
+    if (!activeChat) return;
+    managingChatId = activeChat;
+    const ch = channels.find(c => c.id === managingChatId);
+    if (!ch) return;
+    $('manageChName').textContent = 'Чат: #' + ch.id;
+    $('addMemberSearchInput').value = '';
+    renderManageList();
+    $('manageMembersModal').classList.remove('hidden');
+  };
+
+  $('addMemberSearchInput').oninput = renderManageList;
+
+  function renderManageList() {
+    const ch = channels.find(c => c.id === managingChatId);
+    if (!ch) return;
+
+    const query = $('addMemberSearchInput').value.trim().toLowerCase();
+    const qPhone = normPhone(query);
+    const list = $('manageMembersList'); list.innerHTML = '';
+
+    let usersToShow = [];
+    let hint = '';
+
+    if (query === '') {
+      const friendIds = currentUser.friends || [];
+      usersToShow = accounts.filter(u => friendIds.includes(u.id));
+      hint = usersToShow.length === 0 ? 'Список друзей пока пуст. Введите точный ник или телефон для поиска:' : 'Ваши друзья:';
+    } else {
+      usersToShow = accounts.filter(u =>
+        u.id !== activeUserId && (
+          u.nick.toLowerCase() === query ||
+          (u.phone && qPhone && normPhone(u.phone) === qPhone)
+        )
+      );
+      hint = usersToShow.length === 0 ? 'Никого не найдено. Введите точный ник или телефон.' : 'Результаты поиска:';
+    }
+
+    if (hint) list.innerHTML = '<div class="muted-sm" style="padding:2px 4px 6px;">' + hint + '</div>';
+
+    usersToShow.forEach(u => {
+      const isMember = ch.roles && ch.roles[u.id];
+      const row = document.createElement('div');
+      row.className = 'manage-user-row';
+
+      const actions = !isMember
+        ? '<button type="button" class="btn-primary" style="width:auto;padding:6px 12px;font-size:12px;margin:0;" data-add="' + u.id + '">Добавить</button>'
+        : '<span class="status-pill" style="margin:0;">В чате ✓</span>';
+
+      row.innerHTML =
+        '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">' +
+          '<div class="mem-ava" style="' + (u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '') + '">' + (u.avatarImg ? '' : USER_SVG) + '</div>' +
+          '<div style="min-width:0;">' +
+            '<div class="mem-name" style="color:' + (u.nickColor || '#fff') + '">' + escapeHTML(u.nick) + '</div>' +
+            '<div class="muted-sm">' + escapeHTML(u.status || 'В сети') + '</div>' +
+          '</div>' +
+        '</div>' +
+        actions;
+
+      const addBtn = row.querySelector('[data-add]');
+      if (addBtn) addBtn.onclick = async () => {
+        ch.roles = ch.roles || {};
+        ch.roles[u.id] = 'member';
+        await saveChannelDB(ch); renderManageList(); renderMembers(); playSound('send');
+      };
+      list.appendChild(row);
+    });
+  }
+
+  $('closeManageBtn').onclick = () => $('manageMembersModal').classList.add('hidden');
+  $('ctxManageMembers').onclick = () => {
+    if (ctxTargetId) { activeChat = ctxTargetId; $('openManageBtn').click(); }
+  };
+
+  let viewingUser = null;
+  $('closeViewUserBtn').onclick = () => $('viewUserModal').classList.add('hidden');
+
+  $('addFriendBtn').onclick = async () => {
+    if (!viewingUser || viewingUser.id === activeUserId) return;
+    currentUser.friends = currentUser.friends || [];
+    const isFriend = currentUser.friends.includes(viewingUser.id);
+    if (isFriend) {
+      currentUser.friends = currentUser.friends.filter(id => id !== viewingUser.id);
+      viewingUser.friends = (viewingUser.friends || []).filter(id => id !== activeUserId);
+      $('addFriendBtn').textContent = 'В друзья';
+      $('addFriendBtn').style.color = 'var(--green)';
+      await Promise.all([saveUserDB(currentUser), saveUserDB(viewingUser)]);
+      renderFriendsTab();
+    } else {
+      await sendFriendRequestTo(viewingUser);
+      $('addFriendBtn').textContent = 'Заявка отправлена ✓';
+      $('addFriendBtn').style.color = 'var(--green)';
+    }
+  };
+
+  function openUserProfile(u) {
+    if (!u) return;
+    viewingUser = u;
+    $('viewNick').textContent = u.nick; $('viewNick').style.color = u.nickColor || '#ffffff';
+    $('viewAdminBadge').textContent = 'Владелец';
+    $('viewAdminBadge').classList.toggle('hidden', !u.isAdmin);
+    $('viewStatus').textContent = u.status || 'В сети'; $('viewBio').textContent = u.bio || 'Нет описания';
+    setAvaStyle($('viewAvatar'), u.avatarImg); setBannerStyle($('viewBanner'), u.banner);
+    $('dmUserBtn').classList.toggle('hidden', u.id === activeUserId);
+
+    if (u.id === activeUserId) {
+      $('addFriendBtn').classList.add('hidden');
+    } else {
+      $('addFriendBtn').classList.remove('hidden');
+      const isFriend = currentUser.friends && currentUser.friends.includes(u.id);
+      const isSent = u.friendRequests && u.friendRequests.includes(activeUserId);
+      $('addFriendBtn').textContent = isFriend ? 'Удалить из друзей' : (isSent ? 'Заявка отправлена ✓' : 'В друзья');
+      $('addFriendBtn').style.color = isFriend ? '#ff5252' : 'var(--green)';
+    }
+    $('viewUserModal').classList.remove('hidden');
+  }
+
+  function renderMembers() {
+    const q = $('memberSearchInput').value.trim().toLowerCase();
+    const list = $('membersList'); list.innerHTML = '';
+    const ch = channels.find(c => c.id === activeChat);
+    if (!ch) return;
+
+    const all = accounts.filter(u => u.nick.toLowerCase().includes(q));
+    list.innerHTML = '<div class="mem-group">УЧАСТНИКИ — ' + Object.keys(ch.roles || {}).length + '</div>';
+
+    all.forEach(u => {
+      const isMember = ch.roles && ch.roles[u.id];
+      if (!isMember) return;
+
+      const item = document.createElement('div'); item.className = 'mem-item';
+      const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
+      const avaText = u.avatarImg ? '' : USER_SVG;
+      const role = ch.roles && ch.roles[u.id];
+
+      let roleBadge = '';
 if (u.isAdmin || role === 'owner') roleBadge = 'Владелец';
 else if (role === 'admin') roleBadge = 'Админ';
 item.innerHTML =
@@ -1185,193 +1196,171 @@ item.onclick = () => { closeMobilePanels(); openUserProfile(u); };
 list.appendChild(item);
 });
 }
-// --- КОНЕЦ ЧАСТИ 3 ---
-// --- НАЧАЛО ЧАСТИ 4 ---
-  function renderMessages() {
-    const box = $('messages'); box.innerHTML = '';
-    if (!activeChat) return;
-    const msgs = chatsData[activeChat] || [];
-    const ch = channels.find(c => c.id === activeChat);
-
-    msgs.forEach((m, idx) => {
-      if (m.type === 'system') {
-        const sys = document.createElement('div');
-        sys.className = 'sys-row';
-        sys.innerHTML = '<div class="sys-ico">' + CALL_SVG + '</div><div><b>' + escapeHTML(m.author) + '</b> ' + escapeHTML(m.content) + ' <span class="sys-time">' + m.time + '</span></div>';
-        box.appendChild(sys);
-        return;
-      }
-
-      const row = document.createElement('div');
-      row.className = 'msg-row';
-      row.dataset.msgIdx = idx;
-      const authorAcc = accounts.find(a => a.id === m.userId);
-      const actualAva = authorAcc ? authorAcc.avatarImg : m.avatarImg;
-      const actualColor = authorAcc ? authorAcc.nickColor : (m.nickColor || '#fff');
-      const isGlobalOwner = (authorAcc && authorAcc.isAdmin) || m.isAdmin;
-
-      const role = ch && ch.roles ? ch.roles[m.userId] : null;
-      let roleBadge = '';
-      if (isGlobalOwner || role === 'owner') roleBadge = '<span class="role-badge role-owner">Владелец</span>';
-      else if (role === 'admin') roleBadge = '<span class="role-badge role-admin">Админ</span>';
-
-      const avaPart = '<div class="msg-ava" style="' + (actualAva ? 'background-image:url(' + actualAva + ')' : '') + '">' + (actualAva ? '' : USER_SVG) + '</div>';
-      const topPart =
-        '<div class="msg-top">' +
-          '<span class="msg-author" style="color:' + actualColor + '">' + escapeHTML(m.author) + '</span>' +
-          roleBadge +
-          '<span class="msg-time">' + m.time + '</span>' +
-        '</div>';
-      const quotePart = m.reply ? '<div class="msg-quote">↩ ' + escapeHTML(m.reply) + '</div>' : '';
-
-      let contentHtml = '';
-      if (m.type === 'sticker') contentHtml = '<div class="msg-sticker">' + m.content + '</div>';
-      else if (m.type === 'image') contentHtml = '<img class="msg-media" data-zoom src="' + m.content + '" alt="media">';
-      else if (m.type === 'video') contentHtml = '<video class="msg-media" controls src="' + m.content + '"></video>';
-      else if (m.type === 'audio') {
-        const heights = Array.from({ length: 24 }, (_, i) => 30 + ((i * 37) % 65));
-        const bars = heights.map(h => '<div class="vp-bar" style="height:' + h + '%"></div>').join('');
-        contentHtml = '<div class="voice-player"><button type="button" class="vp-play">▶</button><div class="vp-wave">' + bars + '</div><span class="vp-time">0:00</span><audio preload="metadata" src="' + m.content + '"></audio></div>';
-      }
-      else contentHtml = '<div class="msg-text">' + escapeHTML(m.content) + '</div>';
-
-      const reactsHtml = m.reactions ? Object.entries(m.reactions).map(([em, users]) => {
-        if (!Array.isArray(users) || !users.length) return '';
-        const mineCls = users.includes(activeUserId) ? ' mine' : '';
-        return '<button type="button" class="react-pill' + mineCls + '" data-em="' + em + '">' + em + ' ' + users.length + '</button>';
-      }).join('') : '';
-      const reactsBlock = reactsHtml ? '<div class="reactions-row">' + reactsHtml + '</div>' : '';
-
-      row.innerHTML = avaPart + '<div class="msg-body">' + topPart + quotePart + contentHtml + reactsBlock + '</div>';
-
-      const openAuthor = () => { if (authorAcc) openUserProfile(authorAcc); };
-      row.querySelector('.msg-ava').onclick = openAuthor;
-      row.querySelector('.msg-author').onclick = openAuthor;
-
-      row.oncontextmenu = e => { e.preventDefault(); openMsgMenu(e.clientX, e.clientY, idx); };
-      let pressTimer = null;
-      row.addEventListener('touchstart', e => { const t = e.touches; pressTimer = setTimeout(() => { if (t) openMsgMenu(t.clientX, t.clientY, idx); }, 450); }, { passive: true });
-      row.addEventListener('touchend', () => clearTimeout(pressTimer));
-      row.addEventListener('touchmove', () => clearTimeout(pressTimer));
-
-      const zoomImg = row.querySelector('[data-zoom]');
-      if (zoomImg) zoomImg.onclick = () => { $('lightboxImg').src = m.content; $('lightboxModal').classList.remove('hidden'); };
-      row.querySelectorAll('.react-pill').forEach(p => p.onclick = () => toggleReaction(m, p.dataset.em));
-
-      const vp = row.querySelector('.voice-player');
-      if (vp) {
-        const aud = vp.querySelector('audio'), btn = vp.querySelector('.vp-play'), tm = vp.querySelector('.vp-time'), bars = vp.querySelectorAll('.vp-bar'), wave = vp.querySelector('.vp-wave');
-        const fmt = s => isFinite(s) ? Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') : '0:00';
-        aud.onloadedmetadata = () => { tm.textContent = fmt(aud.duration); };
-        btn.onclick = () => {
-          if (aud.paused) {
-            document.querySelectorAll('.voice-player audio').forEach(a => { if (a !== aud) a.pause(); });
-            aud.play(); btn.textContent = '⏸';
-          } else { aud.pause(); btn.textContent = '▶'; }
-        };
-        aud.onpause = () => { btn.textContent = '▶'; };
-        aud.onended = () => { btn.textContent = '▶'; bars.forEach(b => b.classList.remove('active')); tm.textContent = fmt(aud.duration); };
-        aud.ontimeupdate = () => {
-          tm.textContent = fmt(aud.currentTime);
-          const pct = aud.duration ? aud.currentTime / aud.duration : 0;
-          const activeCount = Math.floor(pct * bars.length);
-          bars.forEach((b, i) => b.classList.toggle('active', i <= activeCount));
-        };
-        wave.onclick = e => {
-          if (!aud.duration) return;
-          const rect = wave.getBoundingClientRect();
-          aud.currentTime = ((e.clientX - rect.left) / rect.width) * aud.duration;
-        };
-      }
-      box.appendChild(row);
-    });
-    box.scrollTop = box.scrollHeight;
-  }
-
-  $('messageForm').onsubmit = async e => {
-    e.preventDefault();
-    if (!activeChat) return;
-    const ch = channels.find(c => c.id === activeChat);
-    if (!canWrite(ch)) return;
-
-    if (pendingVoiceUrl) {
-      const vData = pendingVoiceUrl;
-      pendingVoiceUrl = null;
-      $('voicePreviewBar').classList.add('hidden');
-      $('voicePreviewAudio').src = '';
-      await pushMessage('audio', vData);
-    }
-
-    let txt = $('messageInput').value.trim();
-    if (!txt) return;
-    if (txt === '/roll') txt = '🎲 Выбросил число: ' + (Math.floor(Math.random() * 100) + 1);
-    else if (txt === '/coin') txt = '🪙 Монетка: ' + (Math.random() < 0.5 ? 'Орёл!' : 'Решка!');
-    else if (txt === '/shrug') txt = '¯\\_(ツ)_/¯';
-    $('messageInput').value = '';
-    await pushMessage('text', txt);
-  };
-
-  async function pushMessage(type, content) {
-    if (!currentUser || !activeChat) return;
-    $('typingIndicator').classList.add('hidden');
-    const newMsg = {
-      chat_id: activeChat, user_id: activeUserId, is_admin: !!currentUser.isAdmin,
-      author: currentUser.nick, nick_color: currentUser.nickColor, avatar_img: currentUser.avatarImg,
-      type: type, content: content, time_str: formatFullTime(), reply: replyTo, reactions: {}
-    };
-    replyTo = null; $('replyBar').classList.add('hidden');
-    const { data } = await sb.from('looma_messages').insert(newMsg).select().single();
-    if (data) {
-      chatsData[activeChat] = chatsData[activeChat] || [];
-      if (!chatsData[activeChat].some(x => x.dbId === data.id)) chatsData[activeChat].push(mapMsgFromDB(data));
-      renderMessages();
-      if (type !== 'system') playSound('send');
-    }
-  }
-
-  document.querySelectorAll('.ch-kind').forEach(b => b.onclick = () => {
-    document.querySelectorAll('.ch-kind').forEach(x => x.classList.remove('active'));
-    b.classList.add('active'); selectedChKind = b.dataset.kind;
-  });
-  document.querySelectorAll('.ch-type').forEach(b => b.onclick = () => {
-    document.querySelectorAll('.ch-type').forEach(x => x.classList.remove('active'));
-    b.classList.add('active'); selectedChType = b.dataset.type;
-  });
-
-  $('pickChImgBtn').onclick = () => $('chImgInput').click();
-  $('chImgInput').onchange = e => {
-    const file = e.target.files.item(0);
-    if (file) compressImage(file, 160, url => { tempChImg = url; setChPreviewStyle($('chImgPreview'), url, false); });
-    e.target.value = '';
-  };
-  $('clearChImgBtn').onclick = () => { tempChImg = null; setChPreviewStyle($('chImgPreview'), null, false); };
-  $('closeChModalBtn').onclick = () => { $('channelModal').classList.add('hidden'); tempChImg = null; };
-
-  $('openCreateChBtn').onclick = () => {
-    closeMobilePanels(); editingChId = null; tempChImg = null;
-    $('chModalTitle').textContent = 'Новый чат'; $('saveChBtn').textContent = 'Создать';
-    $('chNameInput').value = ''; $('chDescInput').value = '';
-    document.querySelectorAll('.ch-kind').forEach(b => b.classList.toggle('active', b.dataset.kind === 'group'));
-    document.querySelectorAll('.ch-type').forEach(b => b.classList.toggle('active', b.dataset.type === 'text'));
-    selectedChKind = 'group'; selectedChType = 'text';
-    setChPreviewStyle($('chImgPreview'), null, false);
-    $('channelModal').classList.remove('hidden');
-  };
-
-  $('channelForm').onsubmit = async e => {
-    e.preventDefault();
-    const newId = $('chNameInput').value.trim().toLowerCase().replace(/\s+/g, '-');
-    if (!newId) return;
-    if (editingChId) {
-      const ch = channels.find(c => c.id === editingChId);
-      if (ch) {
-        if (newId !== editingChId) {
-          await sb.from('looma_channels').delete().eq('id', editingChId);
-          chatsData[newId] = chatsData[editingChId] || [];
-          delete chatsData[editingChId];
-          if (activeChat === editingChId) activeChat = newId;
-          ch.id = newId;
-        }
+function renderMessages() {
+const box = $('messages'); box.innerHTML = '';
+if (!activeChat) return;
+const msgs = chatsData[activeChat] || [];
+const ch = channels.find(c => c.id === activeChat);
+msgs.forEach((m, idx) => {
+if (m.type === 'system') {
+const sys = document.createElement('div');
+sys.className = 'sys-row';
+sys.innerHTML = '' + CALL_SVG + '' + escapeHTML(m.author) + ' ' + escapeHTML(m.content) + ' ' + m.time + '';
+box.appendChild(sys);
+return;
+}
+const row = document.createElement('div');
+row.className = 'msg-row';
+row.dataset.msgIdx = idx;
+const authorAcc = accounts.find(a => a.id === m.userId);
+const actualAva = authorAcc ? authorAcc.avatarImg : m.avatarImg;
+const actualColor = authorAcc ? authorAcc.nickColor : (m.nickColor || '#fff');
+const isGlobalOwner = (authorAcc && authorAcc.isAdmin) || m.isAdmin;
+const role = ch && ch.roles ? ch.roles[m.userId] : null;
+let roleBadge = '';
+if (isGlobalOwner || role === 'owner') roleBadge = 'Владелец';
+else if (role === 'admin') roleBadge = 'Админ';
+const avaPart = '' + (actualAva ? '' : USER_SVG) + '';
+const topPart =
+'' +
+'' + escapeHTML(m.author) + '' +
+roleBadge +
+'' + m.time + '' +
+'';
+const quotePart = m.reply ? '↩ ' + escapeHTML(m.reply) + '' : '';
+let contentHtml = '';
+if (m.type === 'sticker') contentHtml = '' + m.content + '';
+else if (m.type === 'image') contentHtml = '';
+else if (m.type === 'video') contentHtml = '';
+else if (m.type === 'audio') {
+const heights = Array.from({ length: 24 }, (_, i) => 30 + ((i * 37) % 65));
+const bars = heights.map(h => '').join('');
+contentHtml = '▶' + bars + '0:00';
+}
+else contentHtml = '' + escapeHTML(m.content) + '';
+const reactsHtml = m.reactions ? Object.entries(m.reactions).map(([em, users]) => {
+if (!Array.isArray(users) || !users.length) return '';
+const mineCls = users.includes(activeUserId) ? ' mine' : '';
+return '' + em + ' ' + users.length + '';
+}).join('') : '';
+const reactsBlock = reactsHtml ? '' + reactsHtml + '' : '';
+row.innerHTML = avaPart + '' + topPart + quotePart + contentHtml + reactsBlock + '';
+const openAuthor = () => { if (authorAcc) openUserProfile(authorAcc); };
+row.querySelector('.msg-ava').onclick = openAuthor;
+row.querySelector('.msg-author').onclick = openAuthor;
+row.oncontextmenu = e => { e.preventDefault(); openMsgMenu(e.clientX, e.clientY, idx); };
+let pressTimer = null;
+row.addEventListener('touchstart', e => { const t = e.touches; pressTimer = setTimeout(() => { if (t) openMsgMenu(t.clientX, t.clientY, idx); }, 450); }, { passive: true });
+row.addEventListener('touchend', () => clearTimeout(pressTimer));
+row.addEventListener('touchmove', () => clearTimeout(pressTimer));
+const zoomImg = row.querySelector('[data-zoom]');
+if (zoomImg) zoomImg.onclick = () => { $('lightboxImg').src = m.content; $('lightboxModal').classList.remove('hidden'); };
+row.querySelectorAll('.react-pill').forEach(p => p.onclick = () => toggleReaction(m, p.dataset.em));
+const vp = row.querySelector('.voice-player');
+if (vp) {
+const aud = vp.querySelector('audio'), btn = vp.querySelector('.vp-play'), tm = vp.querySelector('.vp-time'), bars = vp.querySelectorAll('.vp-bar'), wave = vp.querySelector('.vp-wave');
+const fmt = s => isFinite(s) ? Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') : '0:00';
+aud.onloadedmetadata = () => { tm.textContent = fmt(aud.duration); };
+btn.onclick = () => {
+if (aud.paused) {
+document.querySelectorAll('.voice-player audio').forEach(a => { if (a !== aud) a.pause(); });
+aud.play(); btn.textContent = '⏸';
+} else { aud.pause(); btn.textContent = '▶'; }
+};
+aud.onpause = () => { btn.textContent = '▶'; };
+aud.onended = () => { btn.textContent = '▶'; bars.forEach(b => b.classList.remove('active')); tm.textContent = fmt(aud.duration); };
+aud.ontimeupdate = () => {
+tm.textContent = fmt(aud.currentTime);
+const pct = aud.duration ? aud.currentTime / aud.duration : 0;
+const activeCount = Math.floor(pct * bars.length);
+bars.forEach((b, i) => b.classList.toggle('active', i <= activeCount));
+};
+wave.onclick = e => {
+if (!aud.duration) return;
+const rect = wave.getBoundingClientRect();
+aud.currentTime = ((e.clientX - rect.left) / rect.width) * aud.duration;
+};
+}
+box.appendChild(row);
+});
+box.scrollTop = box.scrollHeight;
+}
+$('messageForm').onsubmit = async e => {
+e.preventDefault();
+if (!activeChat) return;
+const ch = channels.find(c => c.id === activeChat);
+if (!canWrite(ch)) return;
+if (pendingVoiceUrl) {
+const vData = pendingVoiceUrl;
+pendingVoiceUrl = null;
+$('voicePreviewBar').classList.add('hidden');
+$('voicePreviewAudio').src = '';
+await pushMessage('audio', vData);
+}
+let txt = $('messageInput').value.trim();
+if (!txt) return;
+if (txt === '/roll') txt = '🎲 Выбросил число: ' + (Math.floor(Math.random() * 100) + 1);
+else if (txt === '/coin') txt = '🪙 Монетка: ' + (Math.random() < 0.5 ? 'Орёл!' : 'Решка!');
+else if (txt === '/shrug') txt = '¯\(ツ)/¯';
+$('messageInput').value = '';
+await pushMessage('text', txt);
+};
+async function pushMessage(type, content) {
+if (!currentUser || !activeChat) return;
+$('typingIndicator').classList.add('hidden');
+const msgId = 'm_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+const newMsg = {
+id: msgId, ts: Date.now(), chatId: activeChat, userId: activeUserId, isAdmin: !!currentUser.isAdmin,
+author: currentUser.nick, nickColor: currentUser.nickColor, avatarImg: currentUser.avatarImg,
+type: type, content: content, time: formatFullTime(), reply: replyTo, reactions: {}
+};
+replyTo = null; $('replyBar').classList.add('hidden');
+chatsData[activeChat] = chatsData[activeChat] || [];
+chatsData[activeChat].push(newMsg);
+renderMessages();
+if (type !== 'system') playSound('send');
+await fbSet('messages/' + activeChat + '/' + msgId, newMsg);
+}
+document.querySelectorAll('.ch-kind').forEach(b => b.onclick = () => {
+document.querySelectorAll('.ch-kind').forEach(x => x.classList.remove('active'));
+b.classList.add('active'); selectedChKind = b.dataset.kind;
+});
+document.querySelectorAll('.ch-type').forEach(b => b.onclick = () => {
+document.querySelectorAll('.ch-type').forEach(x => x.classList.remove('active'));
+b.classList.add('active'); selectedChType = b.dataset.type;
+});
+$('pickChImgBtn').onclick = () => $('chImgInput').click();
+$('chImgInput').onchange = e => {
+const file = e.target.files.item(0);
+if (file) compressImage(file, 160, url => { tempChImg = url; setChPreviewStyle($('chImgPreview'), url, false); });
+e.target.value = '';
+};
+$('clearChImgBtn').onclick = () => { tempChImg = null; setChPreviewStyle($('chImgPreview'), null, false); };
+$('closeChModalBtn').onclick = () => { $('channelModal').classList.add('hidden'); tempChImg = null; };
+$('openCreateChBtn').onclick = () => {
+closeMobilePanels(); editingChId = null; tempChImg = null;
+$('chModalTitle').textContent = 'Новый чат'; $('saveChBtn').textContent = 'Создать';
+$('chNameInput').value = ''; $('chDescInput').value = '';
+document.querySelectorAll('.ch-kind').forEach(b => b.classList.toggle('active', b.dataset.kind === 'group'));
+document.querySelectorAll('.ch-type').forEach(b => b.classList.toggle('active', b.dataset.type === 'text'));
+selectedChKind = 'group'; selectedChType = 'text';
+setChPreviewStyle($('chImgPreview'), null, false);
+$('channelModal').classList.remove('hidden');
+};
+$('channelForm').onsubmit = async e => {
+e.preventDefault();
+const newId = $('chNameInput').value.trim().toLowerCase().replace(/\s+/g, '-');
+if (!newId) return;
+if (editingChId) {
+const ch = channels.find(c => c.id === editingChId);
+if (ch) {
+if (newId !== editingChId) {
+await fbDel('channels/' + editingChId);
+chatsData[newId] = chatsData[editingChId] || [];
+delete chatsData[editingChId];
+if (activeChat === editingChId) activeChat = newId;
+ch.id = newId;
+}
 ch.iconImg = tempChImg; ch.desc = $('chDescInput').value.trim(); ch.type = selectedChType; ch.kind = selectedChKind;
 await saveChannelDB(ch);
 }
@@ -1403,7 +1392,7 @@ $('channelModal').classList.remove('hidden');
 };
 $('ctxClearCh').onclick = async () => {
 if (ctxTargetId && confirm('Очистить историю сообщений на сервере?')) {
-await sb.from('looma_messages').delete().eq('chat_id', ctxTargetId);
+await fbDel('messages/' + ctxTargetId);
 chatsData[ctxTargetId] = [];
 if (activeChat === ctxTargetId) renderMessages();
 }
@@ -1411,7 +1400,7 @@ if (activeChat === ctxTargetId) renderMessages();
 $('ctxDeleteCh').onclick = async () => {
 if (!ctxTargetId) return;
 if (!confirm('Удалить этот чат навсегда?')) return;
-await sb.from('looma_channels').delete().eq('id', ctxTargetId);
+await Promise.all([fbDel('channels/' + ctxTargetId), fbDel('messages/' + ctxTargetId)]);
 channels = channels.filter(c => c.id !== ctxTargetId); delete chatsData[ctxTargetId];
 if (activeChat === ctxTargetId) {
 const nextCh = getMyChannels().find(c => c.type !== 'voice');
@@ -1439,7 +1428,7 @@ if (!Array.isArray(m.reactions[emoji])) m.reactions[emoji] = [];
 const idx = m.reactions[emoji].indexOf(activeUserId);
 if (idx === -1) m.reactions[emoji].push(activeUserId); else { m.reactions[emoji].splice(idx, 1); if (!m.reactions[emoji].length) delete m.reactions[emoji]; }
 playSound('pop'); renderMessages();
-if (m.dbId) await sb.from('looma_messages').update({ reactions: m.reactions }).eq('id', m.dbId);
+if (m.id) await fbSet('messages/' + activeChat + '/' + m.id + '/reactions', m.reactions);
 }
 function openMsgMenu(x, y, idx) {
 const m = (chatsData[activeChat] || [])[idx];
@@ -1457,8 +1446,8 @@ $('ctxMsgReply').onclick = () => {
 const m = (chatsData[activeChat] || [])[ctxMsgIndex];
 if (!m) return;
 replyTo = m.author + ': ' + (m.type === 'text' ? m.content : '[' + m.type + ']');
-$('replyAuthor').textContent = m.author; $('replyPreview').textContent = m.type === 'text' ? m.content : m.type;
-$('replyBar').classList.remove('hidden'); $('messageInput').focus();
+('replyAuthor').textContent = m.author; ('replyPreview').textContent = m.type === 'text' ? m.content : m.type;
+('replyBar').classList.remove('hidden'); ('messageInput').focus();
 };
 $('ctxMsgPin').onclick = async () => {
 const m = (chatsData[activeChat] || [])[ctxMsgIndex];
@@ -1469,13 +1458,13 @@ $('ctxMsgDel').onclick = async () => {
 const msgs = chatsData[activeChat] || [];
 const target = msgs[ctxMsgIndex];
 if (target) {
-if (target.dbId) await sb.from('looma_messages').delete().eq('id', target.dbId);
+if (target.id) await fbDel('messages/' + activeChat + '/' + target.id);
 msgs.splice(ctxMsgIndex, 1); renderMessages();
 }
 };
-$('lightboxModal').onclick = () => $('lightboxModal').classList.add('hidden');
-$('cancelReplyBtn').onclick = () => { replyTo = null; $('replyBar').classList.add('hidden'); };
-document.addEventListener('click', () => { $('chContextMenu').classList.add('hidden'); $('msgContextMenu').classList.add('hidden'); });
+('lightboxModal').onclick = () => ('lightboxModal').classList.add('hidden');
+('cancelReplyBtn').onclick = () => replyTo = null; ('replyBar').classList.add('hidden'); };
+document.addEventListener('click', () => { ('chContextMenu').classList.add('hidden'); ('msgContextMenu').classList.add('hidden'); });
 const STICKER_CATS = {
 games: ['🎮', '👾', '🏆', '⚔️', '🛡️', '🎯', '🎲', '🕹️', '🐉', '👑', '💎', '🚀'],
 faces: ['😎', '😂', '🥳', '🤯', '🥶', '😈', '👻', '🤖', '💀', '👽', '🤡', '🫡'],
@@ -1487,16 +1476,15 @@ $('stickerGrid').innerHTML = '';
 (STICKER_CATS[cat] || STICKER_CATS.games).forEach(em => {
 const b = document.createElement('button');
 b.type = 'button'; b.className = 'sticker-item'; b.textContent = em;
-b.onclick = () => { pushMessage('sticker', em); $('stickerPicker').classList.add('hidden'); };
-$('stickerGrid').appendChild(b);
+b.onclick = () => { pushMessage('sticker', em); ('stickerPicker').classList.add('hidden'); };('stickerGrid').appendChild(b);
 });
 }
 renderStickers('games');
 document.querySelectorAll('.st-tab').forEach(tab => {
 tab.onclick = e => { e.stopPropagation(); document.querySelectorAll('.st-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); renderStickers(tab.dataset.cat); };
 });
-$('stickerBtn').onclick = e => { e.stopPropagation(); $('stickerPicker').classList.toggle('hidden'); };
-document.addEventListener('click', e => { if (!$('stickerPicker').contains(e.target) && e.target !== $('stickerBtn')) $('stickerPicker').classList.add('hidden'); });
+('stickerBtn').onclick = e => e.stopPropagation(); ('stickerPicker').classList.toggle('hidden'); };
+document.addEventListener('click', e => { if (!$('stickerPicker').contains(e.target) && e.target !== ('stickerBtn')) ('stickerPicker').classList.add('hidden'); });
 function handleFileUpload(f) {
 if (!f) return;
 if (f.type.startsWith('image/')) compressImage(f, 800, url => pushMessage('image', url));
@@ -1506,8 +1494,7 @@ reader.onload = ev => pushMessage('video', ev.target.result);
 reader.readAsDataURL(f);
 }
 }
-$('attachBtn').onclick = () => $('mediaInput').click();
-$('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
+$('attachBtn').onclick = () => \(('mediaInput').click();\)('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
 document.addEventListener('paste', e => { const imgItem = (e.clipboardData ? Array.from(e.clipboardData.items) : []).find(i => i.type.startsWith('image/')); if (imgItem) handleFileUpload(imgItem.getAsFile()); });
 $('memberSearchInput').oninput = renderMembers;
 $('dmUserBtn').onclick = async () => {
@@ -1523,10 +1510,8 @@ $('appRoot').classList.remove('mob-list-view');
 switchSideTab('chats');
 renderChannels(); renderMessages(); renderMembers(); $('viewUserModal').classList.add('hidden');
 };
-$('soundToggleBtn').onclick = () => { soundOn = !soundOn; $('soundToggleBtn').classList.toggle('active', soundOn); if (soundOn) playSound('click'); };
-$('membersToggleBtn').onclick = () => {
-const isHidden = $('membersPanel').classList.toggle('hidden');
-$('membersToggleBtn').classList.toggle('active', !isHidden);
+$('soundToggleBtn').onclick = () => { soundOn = !soundOn; ('soundToggleBtn').classList.toggle('active', soundOn); if (soundOn) playSound('click'); };('membersToggleBtn').onclick = () => {
+const isHidden = \(('membersPanel').classList.toggle('hidden');\)('membersToggleBtn').classList.toggle('active', !isHidden);
 if (window.innerWidth <= 768) $('mobileBackdrop').classList.toggle('hidden', isHidden);
 };
 let typingTimer = null, lastTypingSent = 0;
@@ -1565,46 +1550,22 @@ new Notification(title, { body: text });
 if ('Notification' in window && Notification.permission === 'default') {
 document.addEventListener('click', () => Notification.requestPermission(), { once: true });
 }
-const realtimeRoom = sb.channel('looma_live_room');
-realtimeRoom
-.on('broadcast', { event: 'typing' }, ({ payload }) => {
-if (payload && payload.chatId === activeChat && payload.userId !== activeUserId) {
-showTyping(payload.nick);
-}
-})
-.on('postgres_changes', { event: '', schema: 'public', table: 'looma_messages' }, payload => {
-if (payload.eventType === 'INSERT') {
-const msg = mapMsgFromDB(payload.new);
-const isMyChat = getMyChannels().some(c => c.id === msg.chatId);
-if (!isMyChat) return;
-chatsData[msg.chatId] = chatsData[msg.chatId] || [];
-if (!chatsData[msg.chatId].some(x => x.dbId === msg.dbId)) {
-chatsData[msg.chatId].push(msg);
-if (msg.chatId === activeChat) renderMessages();
-if (msg.userId !== activeUserId && msg.type !== 'system') {
-showNotification(msg.author + ' (#' + msg.chatId + ')', msg.type === 'text' ? msg.content : '[' + msg.type + ']', msg.chatId, false);
-}
-}
-} else if (payload.eventType === 'UPDATE') {
-const msg = mapMsgFromDB(payload.new);
-const arr = chatsData[msg.chatId] || [];
-const i = arr.findIndex(x => x.dbId === msg.dbId);
-if (i !== -1) { arr[i] = msg; if (msg.chatId === activeChat) renderMessages(); }
-} else if (payload.eventType === 'DELETE') {
-Object.keys(chatsData).forEach(cid => {
-chatsData[cid] = (chatsData[cid] || []).filter(x => x.dbId !== payload.old.id);
+$('messageInput').addEventListener('input', () => {
+if (!currentUser || !activeChat || Date.now() - lastTypingSent < 1500) return;
+lastTypingSent = Date.now();
+fbSet('typing/' + activeChat, { userId: activeUserId, nick: currentUser.nick, ts: Date.now() }).catch(() => {});
 });
-renderMessages();
-}
-})
-.on('postgres_changes', { event: '', schema: 'public', table: 'looma_channels' }, async () => {
-await loadAllFromServer(); renderChannels(); renderMembers();
-})
-.on('postgres_changes', { event: '*', schema: 'public', table: 'looma_users' }, async () => {
-const prevReqs = currentUser ? (currentUser.friendRequests || []) : [];
+// Живая синхронизация сообщений, заявок в друзья и статуса "печатает..." каждые 1.2 сек
+setInterval(async () => {
+if (!currentUser) return;
+try {
+const prevReqs = currentUser.friendRequests ? currentUser.friendRequests.slice() : [];
+const prevMsgIds = new Set();
+Object.values(chatsData).forEach(arr => arr.forEach(m => { if (m.id) prevMsgIds.add(m.id); }));
 await loadAllFromServer();
-if (activeUserId) {
-currentUser = accounts.find(a => a.id === activeUserId) || currentUser;
+const freshMe = accounts.find(a => a.id === activeUserId);
+if (freshMe) {
+currentUser = freshMe;
 updateMyUI();
 renderFriendsTab();
 const newReqs = (currentUser.friendRequests || []).filter(id => !prevReqs.includes(id));
@@ -1613,14 +1574,25 @@ const sender = accounts.find(a => a.id === newReqs);
 if (sender) showNotification('Новая заявка в друзья', sender.nick + ' хочет добавить вас в друзья', null, true);
 }
 }
-renderMembers(); renderMessages();
-})
-.subscribe();
-$('messageInput').addEventListener('input', () => {
-if (!currentUser || !activeChat || Date.now() - lastTypingSent < 1500) return;
-lastTypingSent = Date.now();
-realtimeRoom.send({ type: 'broadcast', event: 'typing', payload: { chatId: activeChat, userId: activeUserId, nick: currentUser.nick } });
+renderChannels();
+renderMembers();
+getMyChannels().forEach(ch => {
+const arr = chatsData[ch.id] || [];
+arr.forEach(m => {
+if (m.id && !prevMsgIds.has(m.id) && m.userId !== activeUserId && m.type !== 'system') {
+showNotification(m.author + ' (#' + ch.id + ')', m.type === 'text' ? m.content : '[' + m.type + ']', ch.id, false);
+}
 });
+});
+if (activeChat) {
+renderMessages();
+const tInfo = await fbGet('typing/' + activeChat);
+if (tInfo && tInfo.userId !== activeUserId && Date.now() - (tInfo.ts || 0) < 2500) {
+showTyping(tInfo.nick);
+}
+}
+} catch (e) {}
+}, 1200);
 if (currentUser) enterLooma(currentUser, true);
 loadAllFromServer().then(() => {
 const savedId = getSavedSessionId();
@@ -1632,6 +1604,6 @@ if ($('appRoot').classList.contains('hidden')) enterLooma(freshUser, true);
 else { updateMyUI(); renderChannels(); renderFriendsTab(); renderMessages(); renderMembers(); }
 }
 }
+}).catch(() => {});
 });
-});
-// --- КОНЕЦ ЧАСТИ 4 ---
+// --- КОНЕЦ ЧАСТИ 3 ---
