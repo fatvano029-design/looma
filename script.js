@@ -1,4 +1,4 @@
-/// --- НАЧАЛО ЧАСТИ 1 ---
+// --- НАЧАЛО ЧАСТИ 1 ---
 document.addEventListener('DOMContentLoaded', () => {
   const FS_URL = 'https://googleapis.com';
 
@@ -92,12 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function fbSet(path, data) {
     const parts = path.split('/');
-    if (parts[0] === 'messages' && parts.length === 4) {
+    if (parts.at(0) === 'messages' && parts.length === 4) {
       const parentPath = parts.slice(0, 3).join('/');
       const parentKey = parentPath.replace(/\//g, '__');
       const map = await fetchAllKV(false);
       const parentObj = Object.assign({}, map[parentKey] || {});
-      parentObj[parts[3]] = data;
+      parentObj[parts.at(3)] = data;
       return fbSet(parentPath, parentObj);
     }
     const docId = pathToDocId(path);
@@ -299,7 +299,7 @@ chatsData[chatId] = arr;
 }
 const myTextChs = getMyChannels().filter(c => c.type !== 'voice');
 if (activeChat && !myTextChs.some(c => c.id === activeChat)) {
-activeChat = myTextChs.length ? myTextChs[0].id : null;
+activeChat = myTextChs.length ? myTextChs.at(0).id : null;
 }
 }
 let activeUserId = getSavedSessionId();
