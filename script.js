@@ -1,6 +1,6 @@
 // --- НАЧАЛО ЧАСТИ 1 ---
-document.addEventListener('DOMContentLoaded', async () => {
-  const SUPABASE_URL = 'https://ynvaqziucftoqfgvzjmx.supabase.co';
+document.addEventListener('DOMContentLoaded', () => {
+  const SUPABASE_URL = 'https://supabase.co';
   const SUPABASE_KEY = 'sb_publishable_XPa7Dr__c_5QhmKd7zlu_w_qoJq470P';
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -181,8 +181,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     nick_color: u.nickColor, theme_accent: u.themeAccent, bg_theme: u.bgTheme, sound_pack: u.soundPack,
     msg_size: u.msgSize, ava_radius: u.avaRadius, fx_mode: u.fxMode, status: u.status, bio: u.bio,
     avatar_img: u.avatarImg, banner: u.banner, friends: u.friends || []
-  });const mapChFromDB = c => ({
-id: c.id, type: c.type || 'text', kind: c.kind || 'group', roles: c.roles || {},
+  });
+
+  const mapChFromDB = c => ({
+    id: c.id, type: c.type || 'text', kind: c.kind || 'group', roles: c.roles || {},
 iconImg: c.icon_img || null, desc: c.description || '', pinned: c.pinned || null, pinnedIdx: c.pinned_idx ?? null
 });
 const mapMsgFromDB = m => ({
@@ -216,7 +218,6 @@ if (!channels.some(c => c.id === activeChat && c.type !== 'voice')) {
 activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
 }
 }
-await loadAllFromServer();
 // --- КОНЕЦ ЧАСТИ 1 ---
 // --- НАЧАЛО ЧАСТИ 2 ---
   let activeUserId = getSavedSessionId();
@@ -1281,12 +1282,11 @@ await loadAllFromServer();
     if (!f) return;
     if (f.type.startsWith('image/')) compressImage(f, 800, url => pushMessage('image', url));
     else if (f.type.startsWith('video/')) {
-      const reader = new FileReader();
-      reader.onload = ev => pushMessage('video', ev.target.result);
-      reader.readAsDataURL(f);
-    }
-  }
-  $('attachBtn').onclick = () => $('mediaInput').click();
+      const reader = new FileReader();reader.onload = ev => pushMessage('video', ev.target.result);
+reader.readAsDataURL(f);
+}
+}
+$('attachBtn').onclick = () => $('mediaInput').click();
 $('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
 document.addEventListener('paste', e => { const imgItem = (e.clipboardData ? Array.from(e.clipboardData.items) : []).find(i => i.type.startsWith('image/')); if (imgItem) handleFileUpload(imgItem.getAsFile()); });
 $('memberSearchInput').oninput = renderMembers;
@@ -1378,6 +1378,19 @@ if (!currentUser || Date.now() - lastTypingSent < 1500) return;
 lastTypingSent = Date.now();
 realtimeRoom.send({ type: 'broadcast', event: 'typing', payload: { chatId: activeChat, userId: activeUserId, nick: currentUser.nick } });
 });
-if (currentUser) enterLooma(currentUser);
+// Мгновенно открываем сохранённый аккаунт без ожидания сервера
+if (currentUser) enterLooma(currentUser, true);
+// А свежие данные с сервера подгружаем в фоне, не блокируя кнопки
+loadAllFromServer().then(() => {
+const savedId = getSavedSessionId();
+if (savedId) {
+const freshUser = accounts.find(a => a.id === savedId);
+if (freshUser) {
+currentUser = freshUser;
+if ($('appRoot').classList.contains('hidden')) enterLooma(freshUser, true);
+else { updateMyUI(); renderChannels(); renderMessages(); renderMembers(); }
+}
+}
+});
 });
 // --- КОНЕЦ ЧАСТИ 8 ---
