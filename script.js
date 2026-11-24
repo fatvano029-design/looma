@@ -384,7 +384,11 @@ activeChat = myTextChs ? myTextChs.id : null;
             bio: 'Официальный аккаунт Владельца Looma.', avatarImg: null,
             banner: 'linear-gradient(135deg,#b71c1c,#ffd740)', friends: [], friendRequests: []
           };
-          await saveUserDB(found);
+          const { error } = await saveUserDB(found);
+          if (error) {
+            playSound('error');
+            return ($('authError').textContent = 'Ошибка связи с сервером: ' + error.message);
+          }
           accounts.push(found);
         }
 
