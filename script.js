@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let accounts = [];
   let channels = [];
   let chatsData = {};
-  let activeChat = 'общий-чат';
+  let activeChat = null;
 
   function escapeHTML(str) {
     return String(str).replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
@@ -173,18 +173,19 @@ document.addEventListener('DOMContentLoaded', () => {
     soundPack: r.sound_pack || 'cyber', msgSize: r.msg_size || '15px', avaRadius: r.ava_radius || '50%',
     fxMode: r.fx_mode || 'neon', status: r.status || 'В сети', bio: r.bio || '',
     avatarImg: r.avatar_img || null, banner: r.banner || 'linear-gradient(135deg,#1b2838,#7c4dff)',
-    friends: Array.isArray(r.friends) ? r.friends : []
+    friends: Array.isArray(r.friends) ? r.friends : [],
+    friendRequests: Array.isArray(r.friend_requests) ? r.friend_requests : []
   });
 
   const mapUserToDB = u => ({
     id: u.id, is_admin: !!u.isAdmin, nick: u.nick, email: u.email || null, phone: u.phone || null, pass: u.pass,
     nick_color: u.nickColor, theme_accent: u.themeAccent, bg_theme: u.bgTheme, sound_pack: u.soundPack,
     msg_size: u.msgSize, ava_radius: u.avaRadius, fx_mode: u.fxMode, status: u.status, bio: u.bio,
-    avatar_img: u.avatarImg, banner: u.banner, friends: u.friends || []
+    avatar_img: u.avatarImg, banner: u.banner, friends: u.friends || [], friend_requests: u.friendRequests || []
   });
 
   const mapChFromDB = c => ({
-    id: c.id, type: c.type || 'text', kind: c.kind || 'group', roles: c.roles || {},
+id: c.id, type: c.type || 'text', kind: c.kind || 'group', roles: c.roles || {},
 iconImg: c.icon_img || null, desc: c.description || '', pinned: c.pinned || null, pinnedIdx: c.pinned_idx ?? null
 });
 const mapMsgFromDB = m => ({
@@ -194,8 +195,12 @@ content: m.content, time: m.time_str || '', reply: m.reply || null, reactions: m
 });
 async function saveUserDB(u) {
 const res = await sb.from('looma_users').upsert(mapUserToDB(u));
-if (!res.error) saveSession(u);
+if (!res.error && currentUser && u.id === currentUser.id) saveSession(u);
 return res;
+}
+function getMyChannels() {
+if (!currentUser) return [];
+return channels.filter(c => c.roles && c.roles[currentUser.id]);
 }
 async function loadAllFromServer() {
 const [uRes, cRes, mRes] = await Promise.all([
@@ -214,8 +219,9 @@ if (!chatsData[msg.chatId]) chatsData[msg.chatId] = [];
 chatsData[msg.chatId].push(msg);
 });
 }
-if (!channels.some(c => c.id === activeChat && c.type !== 'voice')) {
-activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
+const myTextChs = getMyChannels().filter(c => c.type !== 'voice');
+if (activeChat && !myTextChs.some(c => c.id === activeChat)) {
+activeChat = myTextChs[0] ? myTextChs[0].id : null;
 }
 }
 // --- КОНЕЦ ЧАСТИ 1 ---
@@ -223,11 +229,12 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
   let activeUserId = getSavedSessionId();
   currentUser = accounts.find(a => a.id === activeUserId) || null;
 
-  // Если сервер на мгновение задумался при старте, но в кэше есть сохранённый профиль — восстанавливаем его
   if (!currentUser && activeUserId) {
     try {
       const cached = JSON.parse(localStorage.getItem('looma_cached_user') || 'null');
       if (cached && cached.id === activeUserId) {
+        cached.friends = Array.isArray(cached.friends) ? cached.friends : [];
+        cached.friendRequests = Array.isArray(cached.friendRequests) ? cached.friendRequests : [];
         currentUser = cached;
         accounts.push(cached);
         saveUserDB(cached);
@@ -302,6 +309,7 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
     applyTheme(currentUser);
     updateMyUI();
     renderChannels();
+    renderFriendsTab();
     renderMessages();
     renderMembers();
     $('authOverlay').classList.add('hidden');
@@ -328,7 +336,6 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
     btn.textContent = isRegister ? 'Создание аккаунта...' : 'Проверка...';
 
     try {
-      // Всегда подтягиваем свежий список аккаунтов с сервера перед проверкой
       await loadAllFromServer();
 
       if (isRegister) {
@@ -345,7 +352,8 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
           id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass,
           nickColor: '#ffffff', themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber',
           msgSize: '15px', avaRadius: '50%', fxMode: 'neon',
-          status: 'В сети', bio: '', avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)', friends: []
+          status: 'В сети', bio: '', avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)',
+          friends: [], friendRequests: []
         };
 
         const { error } = await saveUserDB(newUser);
@@ -778,196 +786,396 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
   }
 // --- КОНЕЦ ЧАСТИ 5 ---
 // --- НАЧАЛО ЧАСТИ 6 ---
+  function switchSideTab(tab) {
+    const isFriends = tab === 'friends';
+    $('sideTabChats').classList.toggle('active', !isFriends);
+    $('sideTabFriends').classList.toggle('active', isFriends);
+    $('dockChatsBtn').classList.toggle('active', !isFriends);
+    $('dockFriendsBtn').classList.toggle('active', isFriends);
+    $('sideChatsPane').classList.toggle('hidden', isFriends);
+    $('sideFriendsPane').classList.toggle('hidden', !isFriends);
+    if (isFriends) renderFriendsTab();
+  }
+
+  $('sideTabChats').onclick = () => switchSideTab('chats');
+  $('sideTabFriends').onclick = () => switchSideTab('friends');
+  $('dockChatsBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('chats'); };
+  $('dockFriendsBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('friends'); };
+  $('heroFindFriendBtn').onclick = () => { $('appRoot').classList.add('mob-list-view'); switchSideTab('friends'); $('friendSearchInput').focus(); };
+  $('heroCreateChatBtn').onclick = () => $('openCreateChBtn').click();
+
+  $('mobileBackBtn').onclick = () => {
+    $('appRoot').classList.add('mob-list-view');
+    $('membersPanel').classList.add('hidden');
+    $('mobileBackdrop').classList.add('hidden');
+  };
+
+  async function sendFriendRequestTo(targetUser) {
+    if (!currentUser || !targetUser || targetUser.id === activeUserId) return;
+    currentUser.friends = currentUser.friends || [];
+    targetUser.friends = targetUser.friends || [];
+    targetUser.friendRequests = targetUser.friendRequests || [];
+
+    if (currentUser.friends.includes(targetUser.id)) {
+      $('friendSearchMsg').style.color = 'var(--green)';
+      return ($('friendSearchMsg').textContent = 'Вы уже друзья с ' + targetUser.nick);
+    }
+    if (targetUser.friendRequests.includes(activeUserId)) {
+      $('friendSearchMsg').style.color = 'var(--green)';
+      return ($('friendSearchMsg').textContent = 'Заявка для ' + targetUser.nick + ' уже отправлена ✓');
+    }
+
+    targetUser.friendRequests.push(activeUserId);
+    const { error } = await saveUserDB(targetUser);
+    if (error) {
+      playSound('error');
+      $('friendSearchMsg').style.color = '#ff5252';
+      $('friendSearchMsg').textContent = 'Ошибка отправки заявки';
+      return;
+    }
+
+    playSound('send');
+    const btn = $('sendFriendReqBtn');
+    const oldTxt = btn.textContent;
+    btn.textContent = '✓';
+    btn.style.transform = 'scale(1.15)';
+    setTimeout(() => { btn.textContent = oldTxt; btn.style.transform = ''; }, 900);
+
+    $('friendSearchMsg').style.color = 'var(--green)';
+    $('friendSearchMsg').textContent = 'Заявка отправлена пользователю ' + targetUser.nick + ' ✓';
+  }
+
+  $('sendFriendReqBtn').onclick = async () => {
+    const q = $('friendSearchInput').value.trim();
+    if (!q) return;
+    $('friendSearchMsg').textContent = 'Поиск...';
+    await loadAllFromServer();
+    const qLower = q.toLowerCase();
+    const qPhone = normPhone(q);
+    const found = accounts.find(u =>
+      u.id !== activeUserId && (
+        u.nick.toLowerCase() === qLower ||
+        (u.phone && qPhone && normPhone(u.phone) === qPhone)
+      )
+    );
+    if (!found) {
+      playSound('error');
+      $('friendSearchMsg').style.color = '#ff5252';
+      return ($('friendSearchMsg').textContent = 'Пользователь не найден. Проверьте ник или телефон.');
+    }
+    $('friendSearchInput').value = '';
+    await sendFriendRequestTo(found);
+  };
+
+  function updateReqBadges() {
+    if (!currentUser) return;
+    const reqs = (currentUser.friendRequests || []).filter(id => accounts.some(a => a.id === id));
+    const cnt = reqs.length;
+    $('reqCountBadge').textContent = cnt;
+    $('reqCountBadge').classList.toggle('hidden', cnt === 0);
+    $('dockReqBadge').textContent = cnt;
+    $('dockReqBadge').classList.toggle('hidden', cnt === 0);
+  }
+
+  function renderFriendsTab() {
+    if (!currentUser) return;
+    updateReqBadges();
+
+    const reqIds = (currentUser.friendRequests || []).filter(id => accounts.some(a => a.id === id));
+    const reqBlock = $('incomingReqBlock');
+    const reqList = $('incomingReqList');
+    reqList.innerHTML = '';
+
+    if (reqIds.length > 0) {
+      reqBlock.classList.remove('hidden');
+      reqIds.forEach(fromId => {
+        const u = accounts.find(a => a.id === fromId);
+        if (!u) return;
+        const card = document.createElement('div');
+        card.className = 'req-card';
+        const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
+        card.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1;">' +
+            '<div class="mem-ava" style="' + avaStyle + '">' + (u.avatarImg ? '' : USER_SVG) + '</div>' +
+            '<div style="min-width:0;">' +
+              '<div class="mem-name" style="color:' + (u.nickColor || '#fff') + '">' + escapeHTML(u.nick) + '</div>' +
+              '<div class="muted-sm">Хочет в друзья</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="req-actions">' +
+            '<button type="button" class="btn-accept" title="Принять">✓</button>' +
+            '<button type="button" class="btn-decline" title="Отклонить">✕</button>' +
+          '</div>';
+
+        card.querySelector('.btn-accept').onclick = async () => {
+          card.classList.add('accepted-flash');
+          playSound('login');
+          currentUser.friendRequests = (currentUser.friendRequests || []).filter(id => id !== u.id);
+          currentUser.friends = currentUser.friends || [];
+          if (!currentUser.friends.includes(u.id)) currentUser.friends.push(u.id);
+          u.friends = u.friends || [];
+          if (!u.friends.includes(activeUserId)) u.friends.push(activeUserId);
+          await Promise.all([saveUserDB(currentUser), saveUserDB(u)]);
+          setTimeout(() => { renderFriendsTab(); renderChannels(); }, 280);
+        };
+
+        card.querySelector('.btn-decline').onclick = async () => {
+          currentUser.friendRequests = (currentUser.friendRequests || []).filter(id => id !== u.id);
+          await saveUserDB(currentUser);
+          renderFriendsTab();
+        };
+
+        reqList.appendChild(card);
+      });
+    } else {
+      reqBlock.classList.add('hidden');
+    }
+
+    const friendIds = (currentUser.friends || []).filter(id => accounts.some(a => a.id === id));
+    $('friendsCountLabel').textContent = friendIds.length;
+    const fList = $('friendsList');
+    fList.innerHTML = '';
+
+    if (friendIds.length === 0) {
+      fList.innerHTML =
+        '<div class="side-empty-card">' +
+          '<b>У вас пока не добавлен ни один друг</b>' +
+          'Введите точный ник или телефон друга в поле выше, чтобы отправить заявку!' +
+        '</div>';
+      return;
+    }
+
+    friendIds.forEach(fid => {
+      const u = accounts.find(a => a.id === fid);
+      if (!u) return;
+      const item = document.createElement('div');
+      item.className = 'mem-item mem-row-custom';
+      const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
+      const ownerBadge = u.isAdmin ? '<span class="role-badge role-owner">Владелец</span>' : '';
+      item.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1;">' +
+          '<div class="mem-ava" style="' + avaStyle + '">' + (u.avatarImg ? '' : USER_SVG) + '</div>' +
+          '<div style="min-width:0;">' +
+            '<div class="mem-name" style="color:' + (u.nickColor || '#fff') + '">' + escapeHTML(u.nick) + ' ' + ownerBadge + '</div>' +
+            '<div class="mem-stat">' + escapeHTML(u.status || 'В сети') + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="btn-sec" style="padding:4px 9px;font-size:12px;">ЛС</button>';
+
+      item.querySelector('button').onclick = async e => {
+        e.stopPropagation();
+        viewingUser = u;
+        $('dmUserBtn').click();
+      };
+      item.onclick = () => openUserProfile(u);
+      fList.appendChild(item);
+    });
+  }
+
+  function updateEmptyHeroState() {
+    const myChs = getMyChannels();
+    const cur = myChs.find(c => c.id === activeChat && c.type !== 'voice');
+    const hasActive = !!cur;
+
+    $('emptyChatHero').classList.toggle('hidden', hasActive);
+    $('chatHeader').classList.toggle('hidden', !hasActive);
+    $('messages').classList.toggle('hidden', !hasActive);
+    $('inputBox').classList.toggle('hidden', !hasActive);
+    if (!hasActive) {
+      $('pinnedBar').classList.add('hidden');
+      $('membersPanel').classList.add('hidden');
+      const fCount = (currentUser && currentUser.friends ? currentUser.friends.length : 0);
+      $('emptyHeroSub').textContent = myChs.length === 0 && fCount === 0
+        ? 'У вас пока не создано ни одного чата и не добавлен ни один друг. Начните общение прямо сейчас!'
+        : 'Выберите чат или друга слева, чтобы начать переписку!';
+    }
+  }
+
   function renderChannels() {
     $('chatList').innerHTML = ''; $('voiceList').innerHTML = '';
-    channels.forEach(ch => {
+    const myChs = getMyChannels();
+    const textChs = myChs.filter(c => c.type !== 'voice');
+    const voiceChs = myChs.filter(c => c.type === 'voice');
+
+    if (textChs.length === 0) {
+      $('chatList').innerHTML =
+        '<div class="side-empty-card">' +
+          '<b>У вас пока не создано ни одного чата</b>' +
+          'Нажмите <b>«+»</b> на панели слева или добавьте друга во вкладке <b>«Друзья»</b>.' +
+        '</div>';
+    }
+
+    $('voiceGroupLabel').classList.toggle('hidden', voiceChs.length === 0);
+
+    myChs.forEach(ch => {
       const el = document.createElement('div');
       const isVoice = ch.type === 'voice';
       el.className = 'ch-item' + (!isVoice && ch.id === activeChat ? ' active' : '');
       const avaStyle = ch.iconImg ? 'background-image:url(' + ch.iconImg + ')' : '';
       const avaText = ch.iconImg ? '' : (isVoice ? '🔊' : '#');
       const lockIcon = ch.kind === 'channel' && !canWrite(ch) ? ' 🔒' : '';
-
-      el.innerHTML = '<div class="ch-left"><div class="ch-ava" style="' + avaStyle + '">' + avaText + '</div><span class="ch-name">' + escapeHTML(ch.id) + lockIcon + '</span></div>';
-
-      el.onclick = () => {
-        if (isVoice) return startCall(false, ch.id);
-        activeChat = ch.id; renderChannels(); renderMessages(); renderMembers(); closeMobilePanels();
-      };
-      el.oncontextmenu = e => {
-        e.preventDefault(); ctxTargetId = ch.id;
-        $('ctxManageMembers').classList.toggle('hidden', !canManage(ch));
-        $('chContextMenu').style.left = Math.min(e.clientX, window.innerWidth - 205) + 'px';
-        $('chContextMenu').style.top = Math.min(e.clientY, window.innerHeight - 190) + 'px';
-        $('chContextMenu').classList.remove('hidden');
-      };
-      (isVoice ? $('voiceList') : $('chatList')).appendChild(el);
-    });
-
-    const cur = channels.find(c => c.id === activeChat) || channels[0];
-    if (!cur) return;
-    setChPreviewStyle($('currentChatIco'), cur.iconImg, cur.type === 'voice');
-    $('currentChatName').textContent = cur.id;
-    $('currentChatDesc').textContent = cur.desc || '';
-
-    const writeAllowed = canWrite(cur);
-    $('messageForm').classList.toggle('hidden', !writeAllowed);
-    $('noWriteAlert').classList.toggle('hidden', writeAllowed);
-    if (writeAllowed) $('messageInput').placeholder = 'Написать в #' + cur.id + '...';
-
-    $('openManageBtn').style.display = canManage(cur) ? 'inline-flex' : 'none';
-    updatePinnedBar();
-  }
-
-  let managingChatId = null;
-
-  $('openManageBtn').onclick = () => {
-    if (!activeChat) return;
-    managingChatId = activeChat;
-    const ch = channels.find(c => c.id === managingChatId);
-    if (!ch) return;
-    $('manageChName').textContent = 'Чат: #' + ch.id;
-    $('addMemberSearchInput').value = '';
-    renderManageList();
-    $('manageMembersModal').classList.remove('hidden');
-  };
-
-  $('addMemberSearchInput').oninput = renderManageList;
-
-  function renderManageList() {
-    const ch = channels.find(c => c.id === managingChatId);
-    if (!ch) return;
-
-    const query = $('addMemberSearchInput').value.trim().toLowerCase();
-    const list = $('manageMembersList'); list.innerHTML = '';
-
-    let usersToShow = [];
-    let hint = '';
-
-    if (query === '') {
-      const friendIds = currentUser.friends || [];
-      usersToShow = accounts.filter(u => friendIds.includes(u.id) && (!ch.roles || !ch.roles[u.id]));
-      hint = usersToShow.length === 0 ? 'У вас нет друзей, которых можно добавить (или они уже в чате). Введите ник для поиска.' : 'Ваши друзья:';
-    } else {
-      usersToShow = accounts.filter(u =>
-        u.nick.toLowerCase() === query ||
-        (u.phone && normPhone(u.phone) === normPhone(query))
-      );
-      hint = usersToShow.length === 0 ? 'Никого не найдено. Введите точный ник или телефон.' : 'Результаты поиска:';
-    }
-
-    if (hint) list.innerHTML = '<div class="muted-sm" style="padding:10px 8px;">' + hint + '</div>';
-
-    usersToShow.forEach(u => {
-      const isMember = ch.roles && ch.roles[u.id];
-      const row = document.createElement('div');
-      row.className = 'mem-item mem-row-custom';
-
-      const actions = !isMember
-        ? '<button class="btn-sec" style="padding: 4px 10px; font-size:12px;" data-add="' + u.id + '">Добавить</button>'
-        : '<span class="muted-sm" style="color:var(--green)">Уже в чате</span>';
-
-      row.innerHTML =
-        '<div class="mem-ava" style="' + (u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '') + '">' + (u.avatarImg ? '' : USER_SVG) + '</div>' +
-        '<div style="min-width:0; flex:1; margin-left:8px;">' +
-          '<div class="mem-name" style="color:' + (u.nickColor || '#fff') + '">' + escapeHTML(u.nick) + '</div>' +
-          '<div class="muted-sm">' + escapeHTML(u.phone || 'нет телефона') + '</div>' +
-        '</div>' +
-        '<div class="mem-actions" style="align-items:center;">' + actions + '</div>';
-
-      const addBtn = row.querySelector('[data-add]');
-      if (addBtn) addBtn.onclick = async () => {
-        ch.roles = ch.roles || {};
-        ch.roles[u.id] = 'member';
-        await saveChannelDB(ch); renderManageList(); renderMembers(); playSound('send');
-      };
-      list.appendChild(row);
-    });
-  }
-
-  $('closeManageBtn').onclick = () => $('manageMembersModal').classList.add('hidden');
-  $('ctxManageMembers').onclick = () => {
-    if (ctxTargetId) { activeChat = ctxTargetId; $('openManageBtn').click(); }
-  };
-
-  let viewingUser = null;
-  $('closeViewUserBtn').onclick = () => $('viewUserModal').classList.add('hidden');
-
-  $('addFriendBtn').onclick = async () => {
-    if (!viewingUser || viewingUser.id === activeUserId) return;
-    if (!currentUser.friends) currentUser.friends = [];
-
-    const isFriend = currentUser.friends.includes(viewingUser.id);
-    if (isFriend) {
-      currentUser.friends = currentUser.friends.filter(id => id !== viewingUser.id);
-      $('addFriendBtn').textContent = 'В друзья';
-      $('addFriendBtn').style.color = 'var(--green)';
-    } else {
-      currentUser.friends.push(viewingUser.id);
-      $('addFriendBtn').textContent = 'Удалить из друзей';
-      $('addFriendBtn').style.color = '#ff5252';
-      playSound('receive');
-    }
-    await saveUserDB(currentUser);
-  };
-
-  function openUserProfile(u) {
-    if (!u) return;
-    viewingUser = u;
-    $('viewNick').textContent = u.nick; $('viewNick').style.color = u.nickColor || '#ffffff';
-    $('viewAdminBadge').classList.toggle('hidden', !u.isAdmin);
-    $('viewStatus').textContent = u.status || 'В сети'; $('viewBio').textContent = u.bio || 'Нет описания';
-    setAvaStyle($('viewAvatar'), u.avatarImg); setBannerStyle($('viewBanner'), u.banner);
-    $('dmUserBtn').classList.toggle('hidden', u.id === activeUserId);
-
-    if (u.id === activeUserId) {
-      $('addFriendBtn').classList.add('hidden');
-    } else {
-      $('addFriendBtn').classList.remove('hidden');
-      const isFriend = currentUser.friends && currentUser.friends.includes(u.id);
-      $('addFriendBtn').textContent = isFriend ? 'Удалить из друзей' : 'В друзья';
-      $('addFriendBtn').style.color = isFriend ? '#ff5252' : 'var(--green)';
-    }
-    $('viewUserModal').classList.remove('hidden');
-  }
-
-  function renderMembers() {
-    const q = $('memberSearchInput').value.trim().toLowerCase();
-    const list = $('membersList'); list.innerHTML = '';
-    const ch = channels.find(c => c.id === activeChat);
-    if (!ch) return;
-
-    const all = accounts.filter(u => u.nick.toLowerCase().includes(q));
-    list.innerHTML = '<div class="mem-group">УЧАСТНИКИ — ' + Object.keys(ch.roles || {}).length + '</div>';
-
-    all.forEach(u => {
-      const isMember = ch.roles && ch.roles[u.id];
-      if (!isMember && !canManage(ch)) return;
-
-      const item = document.createElement('div'); item.className = 'mem-item';
-      const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
-      const avaText = u.avatarImg ? '' : USER_SVG;
-      const role = ch.roles && ch.roles[u.id];
-
-      let roleBadge = '';
-      if (role === 'owner') roleBadge = '<span class="role-badge role-owner">Владелец</span>';
-      else if (role === 'admin') roleBadge = '<span class="role-badge role-admin">Админ</span>';
-
-      item.innerHTML =
-        '<div class="mem-ava" style="' + avaStyle + '">' + avaText + '</div>' +
-        '<div style="min-width:0; flex:1; margin-left: 8px;">' +
-          '<div class="mem-name" style="color:' + (u.nickColor || '#fff') + '">' + escapeHTML(u.nick) + ' ' + roleBadge + '</div>' +
-          '<div class="mem-stat">' + escapeHTML(u.status || 'В сети') + '</div>' +
-        '</div>';
-
-      item.onclick = () => { closeMobilePanels(); openUserProfile(u); };
-      list.appendChild(item);
-    });
-  }
+el.innerHTML = '' + avaText + '' + escapeHTML(ch.id) + lockIcon + '';
+el.onclick = () => {
+if (isVoice) {
+$('appRoot').classList.remove('mob-list-view');
+updateEmptyHeroState();
+return startCall(false, ch.id);
+}
+activeChat = ch.id;
+$('appRoot').classList.remove('mob-list-view');
+renderChannels(); renderMessages(); renderMembers(); closeMobilePanels();
+};
+el.oncontextmenu = e => {
+e.preventDefault(); ctxTargetId = ch.id;
+$('ctxManageMembers').classList.toggle('hidden', !canManage(ch));
+$('chContextMenu').style.left = Math.min(e.clientX, window.innerWidth - 205) + 'px';
+$('chContextMenu').style.top = Math.min(e.clientY, window.innerHeight - 190) + 'px';
+$('chContextMenu').classList.remove('hidden');
+};
+(isVoice ? $('voiceList') : $('chatList')).appendChild(el);
+});
+updateEmptyHeroState();
+const cur = myChs.find(c => c.id === activeChat && c.type !== 'voice');
+if (!cur) return;
+setChPreviewStyle($('currentChatIco'), cur.iconImg, cur.type === 'voice');
+$('currentChatName').textContent = cur.id;
+$('currentChatDesc').textContent = cur.desc || '';
+const writeAllowed = canWrite(cur);
+$('messageForm').classList.toggle('hidden', !writeAllowed);
+$('noWriteAlert').classList.toggle('hidden', writeAllowed);
+if (writeAllowed) $('messageInput').placeholder = 'Написать в #' + cur.id + '...';
+$('openManageBtn').style.display = canManage(cur) ? 'inline-flex' : 'none';
+updatePinnedBar();
+}
+let managingChatId = null;
+$('openManageBtn').onclick = () => {
+if (!activeChat) return;
+managingChatId = activeChat;
+const ch = channels.find(c => c.id === managingChatId);
+if (!ch) return;
+$('manageChName').textContent = 'Чат: #' + ch.id;
+$('addMemberSearchInput').value = '';
+renderManageList();
+$('manageMembersModal').classList.remove('hidden');
+};
+$('addMemberSearchInput').oninput = renderManageList;
+function renderManageList() {
+const ch = channels.find(c => c.id === managingChatId);
+if (!ch) return;
+const query = $('addMemberSearchInput').value.trim().toLowerCase();
+const list = $('manageMembersList'); list.innerHTML = '';
+let usersToShow = [];
+let hint = '';
+if (query === '') {
+const friendIds = currentUser.friends || [];
+usersToShow = accounts.filter(u => friendIds.includes(u.id) && (!ch.roles || !ch.roles[u.id]));
+hint = usersToShow.length === 0 ? 'У вас нет друзей, которых можно добавить (или они уже в чате). Введите ник для поиска.' : 'Ваши друзья:';
+} else {
+usersToShow = accounts.filter(u =>
+u.nick.toLowerCase() === query ||
+(u.phone && normPhone(u.phone) === normPhone(query))
+);
+hint = usersToShow.length === 0 ? 'Никого не найдено. Введите точный ник или телефон.' : 'Результаты поиска:';
+}
+if (hint) list.innerHTML = '' + hint + '';
+usersToShow.forEach(u => {
+const isMember = ch.roles && ch.roles[u.id];
+const row = document.createElement('div');
+row.className = 'mem-item mem-row-custom';
+const actions = !isMember
+? 'Добавить'
+: 'Уже в чате';
+row.innerHTML =
+'' + (u.avatarImg ? '' : USER_SVG) + '' +
+'' +
+'' + escapeHTML(u.nick) + '' +
+'' + escapeHTML(u.phone || 'нет телефона') + '' +
+'' +
+'' + actions + '';
+const addBtn = row.querySelector('[data-add]');
+if (addBtn) addBtn.onclick = async () => {
+ch.roles = ch.roles || {};
+ch.roles[u.id] = 'member';
+await saveChannelDB(ch); renderManageList(); renderMembers(); playSound('send');
+};
+list.appendChild(row);
+});
+}
+$('closeManageBtn').onclick = () => $('manageMembersModal').classList.add('hidden');
+$('ctxManageMembers').onclick = () => {
+if (ctxTargetId) { activeChat = ctxTargetId; $('openManageBtn').click(); }
+};
+let viewingUser = null;
+$('closeViewUserBtn').onclick = () => $('viewUserModal').classList.add('hidden');
+$('addFriendBtn').onclick = async () => {
+if (!viewingUser || viewingUser.id === activeUserId) return;
+currentUser.friends = currentUser.friends || [];
+const isFriend = currentUser.friends.includes(viewingUser.id);
+if (isFriend) {
+currentUser.friends = currentUser.friends.filter(id => id !== viewingUser.id);
+viewingUser.friends = (viewingUser.friends || []).filter(id => id !== activeUserId);
+$('addFriendBtn').textContent = 'В друзья';
+$('addFriendBtn').style.color = 'var(--green)';
+await Promise.all([saveUserDB(currentUser), saveUserDB(viewingUser)]);
+renderFriendsTab();
+} else {
+await sendFriendRequestTo(viewingUser);
+$('addFriendBtn').textContent = 'Заявка отправлена ✓';
+$('addFriendBtn').style.color = 'var(--green)';
+}
+};
+function openUserProfile(u) {
+if (!u) return;
+viewingUser = u;
+$('viewNick').textContent = u.nick; $('viewNick').style.color = u.nickColor || '#ffffff';
+$('viewAdminBadge').textContent = 'Владелец';
+$('viewAdminBadge').classList.toggle('hidden', !u.isAdmin);
+$('viewStatus').textContent = u.status || 'В сети'; $('viewBio').textContent = u.bio || 'Нет описания';
+setAvaStyle($('viewAvatar'), u.avatarImg); setBannerStyle($('viewBanner'), u.banner);
+$('dmUserBtn').classList.toggle('hidden', u.id === activeUserId);
+if (u.id === activeUserId) {
+$('addFriendBtn').classList.add('hidden');
+} else {
+$('addFriendBtn').classList.remove('hidden');
+const isFriend = currentUser.friends && currentUser.friends.includes(u.id);
+const isSent = u.friendRequests && u.friendRequests.includes(activeUserId);
+$('addFriendBtn').textContent = isFriend ? 'Удалить из друзей' : (isSent ? 'Заявка отправлена ✓' : 'В друзья');
+$('addFriendBtn').style.color = isFriend ? '#ff5252' : 'var(--green)';
+}
+$('viewUserModal').classList.remove('hidden');
+}
+function renderMembers() {
+const q = $('memberSearchInput').value.trim().toLowerCase();
+const list = $('membersList'); list.innerHTML = '';
+const ch = channels.find(c => c.id === activeChat);
+if (!ch) return;
+const all = accounts.filter(u => u.nick.toLowerCase().includes(q));
+list.innerHTML = 'УЧАСТНИКИ — ' + Object.keys(ch.roles || {}).length + '';
+all.forEach(u => {
+const isMember = ch.roles && ch.roles[u.id];
+if (!isMember) return;
+const item = document.createElement('div'); item.className = 'mem-item';
+const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
+const avaText = u.avatarImg ? '' : USER_SVG;
+const role = ch.roles && ch.roles[u.id];
+let roleBadge = '';
+if (u.isAdmin || role === 'owner') roleBadge = 'Владелец';
+else if (role === 'admin') roleBadge = 'Админ';
+item.innerHTML =
+'' + avaText + '' +
+'' +
+'' + escapeHTML(u.nick) + ' ' + roleBadge + '' +
+'' + escapeHTML(u.status || 'В сети') + '' +
+'';
+item.onclick = () => { closeMobilePanels(); openUserProfile(u); };
+list.appendChild(item);
+});
+}
 // --- КОНЕЦ ЧАСТИ 6 ---
 // --- НАЧАЛО ЧАСТИ 7 ---
   function renderMessages() {
     const box = $('messages'); box.innerHTML = '';
+    if (!activeChat) return;
     const msgs = chatsData[activeChat] || [];
     const ch = channels.find(c => c.id === activeChat);
 
@@ -986,10 +1194,11 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
       const authorAcc = accounts.find(a => a.id === m.userId);
       const actualAva = authorAcc ? authorAcc.avatarImg : m.avatarImg;
       const actualColor = authorAcc ? authorAcc.nickColor : (m.nickColor || '#fff');
+      const isGlobalOwner = (authorAcc && authorAcc.isAdmin) || m.isAdmin;
 
       const role = ch && ch.roles ? ch.roles[m.userId] : null;
       let roleBadge = '';
-      if (role === 'owner') roleBadge = '<span class="role-badge role-owner">Владелец</span>';
+      if (isGlobalOwner || role === 'owner') roleBadge = '<span class="role-badge role-owner">Владелец</span>';
       else if (role === 'admin') roleBadge = '<span class="role-badge role-admin">Админ</span>';
 
       const avaPart = '<div class="msg-ava" style="' + (actualAva ? 'background-image:url(' + actualAva + ')' : '') + '">' + (actualAva ? '' : USER_SVG) + '</div>';
@@ -997,7 +1206,6 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
         '<div class="msg-top">' +
           '<span class="msg-author" style="color:' + actualColor + '">' + escapeHTML(m.author) + '</span>' +
           roleBadge +
-          (m.isAdmin && !roleBadge ? '<span class="admin-badge">ADMIN</span>' : '') +
           '<span class="msg-time">' + m.time + '</span>' +
         '</div>';
       const quotePart = m.reply ? '<div class="msg-quote">↩ ' + escapeHTML(m.reply) + '</div>' : '';
@@ -1028,7 +1236,7 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
 
       row.oncontextmenu = e => { e.preventDefault(); openMsgMenu(e.clientX, e.clientY, idx); };
       let pressTimer = null;
-      row.addEventListener('touchstart', e => { const t = e.touches[0]; pressTimer = setTimeout(() => { if (t) openMsgMenu(t.clientX, t.clientY, idx); }, 450); }, { passive: true });
+      row.addEventListener('touchstart', e => { const t = e.touches; pressTimer = setTimeout(() => { if (t) openMsgMenu(t.clientX, t.clientY, idx); }, 450); }, { passive: true });
       row.addEventListener('touchend', () => clearTimeout(pressTimer));
       row.addEventListener('touchmove', () => clearTimeout(pressTimer));
 
@@ -1068,6 +1276,7 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
 
   $('messageForm').onsubmit = async e => {
     e.preventDefault();
+    if (!activeChat) return;
     const ch = channels.find(c => c.id === activeChat);
     if (!canWrite(ch)) return;
 
@@ -1089,7 +1298,7 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
   };
 
   async function pushMessage(type, content) {
-    if (!currentUser) return;
+    if (!currentUser || !activeChat) return;
     $('typingIndicator').classList.add('hidden');
     const newMsg = {
       chat_id: activeChat, user_id: activeUserId, is_admin: !!currentUser.isAdmin,
@@ -1154,12 +1363,17 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
         await saveChannelDB(ch);
       }
     } else {
-      if (channels.some(c => c.id === newId)) { playSound('error'); return alert('Чат уже существует!'); }
+      if (channels.some(c => c.id === newId)) { playSound('error'); return alert('Чат с таким названием уже занят!'); }
       const newCh = { id: newId, type: selectedChType, kind: selectedChKind, roles: { [activeUserId]: 'owner' }, iconImg: tempChImg, desc: $('chDescInput').value.trim(), pinned: null, pinnedIdx: null };
       channels.push(newCh);
       await saveChannelDB(newCh);
-      if (selectedChType !== 'voice') { chatsData[newId] = []; activeChat = newId; }
+      if (selectedChType !== 'voice') {
+        chatsData[newId] = [];
+        activeChat = newId;
+        $('appRoot').classList.remove('mob-list-view');
+      }
     }
+    switchSideTab('chats');
     renderChannels(); renderMessages(); $('channelModal').classList.add('hidden');
   };
 
@@ -1186,12 +1400,14 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
 
   $('ctxDeleteCh').onclick = async () => {
     if (!ctxTargetId) return;
-    const textChs = channels.filter(c => c.type !== 'voice');
-    if (textChs.length <= 1 && ctxTargetId === textChs.id) { playSound('error'); return alert('Нельзя удалить последний текстовый чат!'); }
     if (!confirm('Удалить этот чат навсегда?')) return;
     await sb.from('looma_channels').delete().eq('id', ctxTargetId);
     channels = channels.filter(c => c.id !== ctxTargetId); delete chatsData[ctxTargetId];
-    if (activeChat === ctxTargetId) activeChat = channels.find(c => c.type !== 'voice')?.id || '';
+    if (activeChat === ctxTargetId) {
+      const nextCh = getMyChannels().find(c => c.type !== 'voice');
+      activeChat = nextCh ? nextCh.id : null;
+      if (!activeChat) $('appRoot').classList.add('mob-list-view');
+    }
     renderChannels(); renderMessages(); $('chContextMenu').classList.add('hidden');
   };
 
@@ -1282,12 +1498,12 @@ activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
     if (!f) return;
     if (f.type.startsWith('image/')) compressImage(f, 800, url => pushMessage('image', url));
     else if (f.type.startsWith('video/')) {
-      const reader = new FileReader();reader.onload = ev => pushMessage('video', ev.target.result);
-reader.readAsDataURL(f);
-}
-}
-$('attachBtn').onclick = () => $('mediaInput').click();
-$('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
+      const reader = new FileReader();
+      reader.onload = ev => pushMessage('video', ev.target.result);
+      reader.readAsDataURL(f);
+    }
+  }
+  $('attachBtn').onclick = () => $('mediaInput').click();$('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
 document.addEventListener('paste', e => { const imgItem = (e.clipboardData ? Array.from(e.clipboardData.items) : []).find(i => i.type.startsWith('image/')); if (imgItem) handleFileUpload(imgItem.getAsFile()); });
 $('memberSearchInput').oninput = renderMembers;
 $('dmUserBtn').onclick = async () => {
@@ -1298,7 +1514,10 @@ const newDm = { id: dmId, type: 'text', kind: 'group', roles: { [activeUserId]: 
 channels.push(newDm); chatsData[dmId] = [];
 await saveChannelDB(newDm);
 }
-activeChat = dmId; renderChannels(); renderMessages(); renderMembers(); $('viewUserModal').classList.add('hidden');
+activeChat = dmId;
+$('appRoot').classList.remove('mob-list-view');
+switchSideTab('chats');
+renderChannels(); renderMessages(); renderMembers(); $('viewUserModal').classList.add('hidden');
 };
 $('soundToggleBtn').onclick = () => { soundOn = !soundOn; $('soundToggleBtn').classList.toggle('active', soundOn); if (soundOn) playSound('click'); };
 $('membersToggleBtn').onclick = () => {
@@ -1313,7 +1532,7 @@ $('typingIndicator').classList.remove('hidden');
 clearTimeout(typingTimer);
 typingTimer = setTimeout(() => $('typingIndicator').classList.add('hidden'), 2600);
 }
-function showNotification(title, text, chatId) {
+function showNotification(title, text, chatId, openFriends) {
 playSound('receive');
 const container = $('toastContainer');
 if (container) {
@@ -1321,7 +1540,15 @@ const toast = document.createElement('div');
 toast.className = 'looma-toast';
 toast.innerHTML = '' + escapeHTML(title) + '' + escapeHTML(text) + '';
 toast.onclick = () => {
-if (chatId && channels.some(c => c.id === chatId)) { activeChat = chatId; renderChannels(); renderMessages(); renderMembers(); }
+if (openFriends) {
+$('appRoot').classList.add('mob-list-view');
+switchSideTab('friends');
+} else if (chatId && getMyChannels().some(c => c.id === chatId)) {
+activeChat = chatId;
+$('appRoot').classList.remove('mob-list-view');
+switchSideTab('chats');
+renderChannels(); renderMessages(); renderMembers();
+}
 toast.remove();
 };
 container.appendChild(toast);
@@ -1344,12 +1571,14 @@ showTyping(payload.nick);
 .on('postgres_changes', { event: '', schema: 'public', table: 'looma_messages' }, payload => {
 if (payload.eventType === 'INSERT') {
 const msg = mapMsgFromDB(payload.new);
+const isMyChat = getMyChannels().some(c => c.id === msg.chatId);
+if (!isMyChat) return;
 chatsData[msg.chatId] = chatsData[msg.chatId] || [];
 if (!chatsData[msg.chatId].some(x => x.dbId === msg.dbId)) {
 chatsData[msg.chatId].push(msg);
 if (msg.chatId === activeChat) renderMessages();
 if (msg.userId !== activeUserId && msg.type !== 'system') {
-showNotification(msg.author + ' (#' + msg.chatId + ')', msg.type === 'text' ? msg.content : '[' + msg.type + ']', msg.chatId);
+showNotification(msg.author + ' (#' + msg.chatId + ')', msg.type === 'text' ? msg.content : '[' + msg.type + ']', msg.chatId, false);
 }
 }
 } else if (payload.eventType === 'UPDATE') {
@@ -1368,19 +1597,27 @@ renderMessages();
 await loadAllFromServer(); renderChannels(); renderMembers();
 })
 .on('postgres_changes', { event: '*', schema: 'public', table: 'looma_users' }, async () => {
+const prevReqs = currentUser ? (currentUser.friendRequests || []) : [];
 await loadAllFromServer();
-if (activeUserId) { currentUser = accounts.find(a => a.id === activeUserId) || currentUser; updateMyUI(); }
+if (activeUserId) {
+currentUser = accounts.find(a => a.id === activeUserId) || currentUser;
+updateMyUI();
+renderFriendsTab();
+const newReqs = (currentUser.friendRequests || []).filter(id => !prevReqs.includes(id));
+if (newReqs.length > 0) {
+const sender = accounts.find(a => a.id === newReqs);
+if (sender) showNotification('Новая заявка в друзья', sender.nick + ' хочет добавить вас в друзья', null, true);
+}
+}
 renderMembers(); renderMessages();
 })
 .subscribe();
 $('messageInput').addEventListener('input', () => {
-if (!currentUser || Date.now() - lastTypingSent < 1500) return;
+if (!currentUser || !activeChat || Date.now() - lastTypingSent < 1500) return;
 lastTypingSent = Date.now();
 realtimeRoom.send({ type: 'broadcast', event: 'typing', payload: { chatId: activeChat, userId: activeUserId, nick: currentUser.nick } });
 });
-// Мгновенно открываем сохранённый аккаунт без ожидания сервера
 if (currentUser) enterLooma(currentUser, true);
-// А свежие данные с сервера подгружаем в фоне, не блокируя кнопки
 loadAllFromServer().then(() => {
 const savedId = getSavedSessionId();
 if (savedId) {
@@ -1388,7 +1625,7 @@ const freshUser = accounts.find(a => a.id === savedId);
 if (freshUser) {
 currentUser = freshUser;
 if ($('appRoot').classList.contains('hidden')) enterLooma(freshUser, true);
-else { updateMyUI(); renderChannels(); renderMessages(); renderMembers(); }
+else { updateMyUI(); renderChannels(); renderFriendsTab(); renderMessages(); renderMembers(); }
 }
 }
 });
