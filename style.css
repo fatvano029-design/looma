@@ -209,6 +209,36 @@ input:focus, textarea:focus, .styled-select:focus { border-color: var(--green); 
 .call-btn.hangup:hover { background: #ff1744; }
 /* --- КОНЕЦ CSS ЧАСТИ 3 --- */
 /* --- НАЧАЛО CSS ЧАСТИ 4 --- */
+/* Вкладки Чаты / Друзья и заявки в левой панели */
+.side-tabs { display: flex; gap: 4px; padding: 8px 10px 4px; border-bottom: 1px solid #20252e; }
+.side-tab { flex: 1; background: transparent; border: none; color: var(--muted); padding: 7px 6px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: 0.2s; }
+.side-tab:hover { background: var(--card); color: #fff; }
+.side-tab.active { background: var(--card); color: var(--green); box-shadow: inset 0 -2px 0 var(--green); }
+.req-pill { background: #ff1744; color: #fff; font-size: 10px; font-weight: 900; padding: 1px 6px; border-radius: 10px; animation: pulseGlow 1.5s infinite; }
+.dock-btn { position: relative; }
+.dock-badge { position: absolute; top: -3px; right: -3px; background: #ff1744; color: #fff; font-size: 10px; font-weight: 900; min-width: 17px; height: 17px; border-radius: 9px; display: flex; align-items: center; justify-content: center; padding: 0 4px; border: 2px solid var(--dock); animation: modalPop 0.3s; }
+.side-pane { flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
+.friend-search-box { display: flex; gap: 6px; padding: 10px 10px 4px; }
+.friend-search-box input { flex: 1; min-width: 0; padding: 8px 10px; font-size: 13px; }
+.req-card { background: var(--card); border: 1px solid rgba(0, 230, 118, 0.35); border-radius: 10px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; animation: modalPop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+.req-card.accepted-flash { border-color: var(--green); background: rgba(0, 230, 118, 0.18); transform: scale(1.03); transition: 0.25s; }
+.req-actions { display: flex; gap: 4px; }
+.btn-accept { background: var(--green); color: #0b0d10; border: none; border-radius: 7px; padding: 5px 9px; font-size: 12px; font-weight: 800; cursor: pointer; transition: 0.2s; }
+.btn-accept:hover { filter: brightness(1.1); transform: scale(1.08); }
+.btn-decline { background: rgba(255, 82, 82, 0.18); color: #ff5252; border: 1px solid rgba(255, 82, 82, 0.35); border-radius: 7px; padding: 5px 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.2s; }
+.btn-decline:hover { background: #ff5252; color: #fff; }
+.side-empty-card { margin: 12px 10px; padding: 18px 12px; background: rgba(255, 255, 255, 0.03); border: 1px dashed #2e3542; border-radius: 12px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.45; animation: modalPop 0.3s; }
+.side-empty-card b { display: block; color: #fff; font-size: 13px; margin-bottom: 4px; }
+
+/* Экран-заглушка в центре, когда чатов нет или ни один не выбран */
+.empty-chat-hero { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 28px; position: relative; overflow: hidden; }
+.hero-orb { position: absolute; width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(circle, rgba(0, 230, 118, 0.16), rgba(124, 77, 255, 0.12), transparent 70%); filter: blur(20px); pointer-events: none; animation: pulseGlow 4s infinite; }
+.hero-logo { width: 78px; height: 78px; border-radius: 24px; background: linear-gradient(135deg, var(--green), var(--purple)); color: #fff; font-size: 40px; font-weight: 900; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; box-shadow: 0 12px 35px rgba(0, 230, 118, 0.35); animation: modalPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); position: relative; z-index: 1; }
+.empty-chat-hero h2 { font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 8px; position: relative; z-index: 1; }
+.empty-chat-hero p { max-width: 360px; font-size: 14px; color: var(--muted); line-height: 1.5; margin-bottom: 20px; position: relative; z-index: 1; }
+.hero-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; position: relative; z-index: 1; }
+.hero-actions .btn-primary, .hero-actions .btn-sec { width: auto; padding: 10px 18px; }
+
 .pinned-bar { background: rgba(124, 77, 255, 0.14); border-bottom: 1px solid rgba(124, 77, 255, 0.3); padding: 7px 16px; display: flex; align-items: center; gap: 10px; font-size: 13px; cursor: pointer; animation: slideInRight 0.2s; }
 .pin-badge { background: var(--purple); color: #fff; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 5px; }
 .pinned-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd6fe; }
@@ -261,7 +291,6 @@ input:focus, textarea:focus, .styled-select:focus { border-color: var(--green); 
 .sticker-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; max-height: 200px; overflow-y: auto; }
 .sticker-item { font-size: 30px; background: var(--card); border: none; border-radius: 10px; padding: 5px; cursor: pointer; transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 .sticker-item:hover { background: #2c3340; transform: scale(1.25) rotate(5deg); }
-
 .reply-bar { margin: 0 16px 6px; background: var(--card); padding: 7px 12px; border-radius: 10px; font-size: 12px; display: flex; align-items: center; gap: 10px; border-left: 3px solid var(--green); animation: slideInRight 0.3s; }
 .input-box { padding: 0 16px 16px; }
 .msg-form { display: flex; align-items: center; background: var(--card); padding: 6px 8px; border-radius: 12px; border: 1px solid #2e3542; gap: 4px; transition: 0.3s; }
@@ -275,11 +304,9 @@ input:focus, textarea:focus, .styled-select:focus { border-color: var(--green); 
 .send-btn { background: var(--green); color: #0b0d10; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; flex-shrink: 0; transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 .send-btn:hover { filter: brightness(1.1); transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,230,118,0.3); }
 .send-btn:active { transform: scale(0.9); }
-
 /* Полоска предпросмотра голосового перед отправкой */
 .voice-preview-bar { margin-bottom: 6px; background: var(--card); border: 1px solid var(--green); border-radius: 10px; padding: 6px 12px; display: flex; align-items: center; gap: 10px; animation: slideInRight 0.2s; }
 .vp-badge { font-size: 12px; font-weight: 700; color: var(--green); white-space: nowrap; }
-
 /* Индикатор печатает и всплывающие уведомления */
 .typing-indicator { display: flex; align-items: center; gap: 8px; padding: 4px 20px 6px; font-size: 12px; color: var(--green); font-weight: 600; animation: slideInRight 0.2s; }
 .typing-dots { display: inline-flex; gap: 3px; }
@@ -287,12 +314,10 @@ input:focus, textarea:focus, .styled-select:focus { border-color: var(--green); 
 .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
 .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes typingBounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1.1); opacity: 1; } }
-
 .toast-container { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 2500; max-width: 310px; pointer-events: none; }
 .looma-toast { pointer-events: auto; background: rgba(19, 22, 27, 0.96); border: 1px solid var(--green); border-left: 4px solid var(--green); border-radius: 12px; padding: 11px 14px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.75); backdrop-filter: blur(10px); animation: slideInRight 0.25s ease-out; cursor: pointer; }
 .toast-title { font-size: 13px; font-weight: 800; color: var(--green); margin-bottom: 2px; }
 .toast-body { font-size: 12px; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
 /* Экран приветствия на 1.7 сек при входе */
 .welcome-splash { position: fixed; inset: 0; z-index: 3000; background: radial-gradient(circle at center, #141923 0%, #090b0f 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; animation: splashFade 1.7s forwards ease-in-out; pointer-events: none; }
 .welcome-logo { width: 76px; height: 76px; border-radius: 22px; background: linear-gradient(135deg, var(--green), var(--purple)); color: #fff; font-size: 40px; font-weight: 900; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 40px rgba(0, 230, 118, 0.5); animation: modalPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
@@ -334,17 +359,20 @@ input:focus, textarea:focus, .styled-select:focus { border-color: var(--green); 
 .mem-manage-btn:hover { color: #fff; background: rgba(255,255,255,0.1); transform: scale(1.3); }
 .mem-actions { display: flex; gap: 2px; margin-left: auto; }
 .mem-row-custom { display: flex; align-items: center; width: 100%; justify-content: space-between; }
+/* На телефоне: сначала удобный экран со списком Чатов и Друзей во всю ширину (как в Telegram), при выборе чата — экран переписки /
 @media (max-width: 768px) {
 .mobile-only { display: inline-flex !important; }
 .head-sep, .head-desc { display: none; }
 .msg-row, .sys-row { padding: 8px 12px; gap: 10px; }
-.dock { position: fixed; top: 0; bottom: 0; left: -320px; transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-.sidebar { position: fixed; top: 0; bottom: 0; left: -254px; width: 240px; transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-body.mob-nav-open .dock { left: 0; }
-body.mob-nav-open .sidebar { left: 66px; }
+.app.mob-list-view .dock { display: flex; }
+.app.mob-list-view .sidebar { flex: 1; width: auto; max-width: none; }
+.app.mob-list-view .main { display: none; }
+.app:not(.mob-list-view) .dock { display: none; }
+.app:not(.mob-list-view) .sidebar { display: none; }
+.app:not(.mob-list-view) .main { display: flex; width: 100%; }
 .members-panel { position: fixed; top: 0; bottom: 0; right: 0; width: 240px; box-shadow: -10px 0 30px rgba(0, 0, 0, 0.7); animation: slideInRight 0.3s; }
 .settings-win { flex-direction: column; height: 88dvh; }
 .set-side { width: 100%; flex-direction: row; overflow-x: auto; padding: 10px; border-right: none; border-bottom: 1px solid #20252e; }
 .set-nav { white-space: nowrap; padding: 7px 10px; }
 }
-/* --- КОНЕЦ CSS ЧАСТИ 4 --- */
+/ --- КОНЕЦ CSS ЧАСТИ 4 --- */

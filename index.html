@@ -359,14 +359,15 @@
     <button type="button" class="danger" id="ctxMsgDel">Удалить</button>
   </div>
 
-  <!-- ОСНОВНОЙ ИНТЕРФЕЙС (СКРЫТ ДО ВХОДА) -->
-  <div class="app hidden" id="appRoot">
+  <!-- ОСНОВНОЙ ИНТЕРФЕЙС -->
+  <div class="app hidden mob-list-view" id="appRoot">
     <div class="mobile-backdrop hidden" id="mobileBackdrop"></div>
 
     <nav class="dock">
       <div class="dock-btn brand">L</div>
       <div class="dock-line"></div>
-      <div class="dock-btn active" title="Сервер Looma">💬</div>
+      <div class="dock-btn active" id="dockChatsBtn" title="Чаты">💬</div>
+      <div class="dock-btn" id="dockFriendsBtn" title="Друзья">👥<span class="dock-badge hidden" id="dockReqBadge">0</span></div>
       <div class="dock-btn add" id="openCreateChBtn" title="Создать чат">+</div>
       <div class="dock-btn" id="openSettingsBtn" style="margin-top:auto;" title="Настройки">⚙️</div>
     </nav>
@@ -376,10 +377,37 @@
         <span>Looma</span>
         <span class="pill">ONLINE</span>
       </div>
-      <div class="group-label">ТЕКСТОВЫЕ ЧАТЫ</div>
-      <div class="ch-list" id="chatList"></div>
-      <div class="group-label">ГОЛОСОВЫЕ КОМНАТЫ</div>
-      <div class="ch-list voice-list" id="voiceList"></div>
+
+      <!-- ПЕРЕКЛЮЧАТЕЛЬ ВКЛАДОК: ЧАТЫ / ДРУЗЬЯ -->
+      <div class="side-tabs">
+        <button type="button" class="side-tab active" id="sideTabChats">Чаты</button>
+        <button type="button" class="side-tab" id="sideTabFriends">Друзья <span class="req-pill hidden" id="reqCountBadge">0</span></button>
+      </div>
+
+      <!-- ВКЛАДКА ЧАТЫ -->
+      <div class="side-pane" id="sideChatsPane">
+        <div class="group-label">ЛИЧНЫЕ И ГРУППЫ</div>
+        <div class="ch-list" id="chatList"></div>
+        <div class="group-label" id="voiceGroupLabel">ГОЛОСОВЫЕ КОМНАТЫ</div>
+        <div class="ch-list voice-list" id="voiceList"></div>
+      </div>
+
+      <!-- ВКЛАДКА ДРУЗЬЯ И ЗАЯВКИ -->
+      <div class="side-pane hidden" id="sideFriendsPane">
+        <div class="friend-search-box">
+          <input type="text" id="friendSearchInput" placeholder="Ник или телефон друга...">
+          <button type="button" class="btn-primary" id="sendFriendReqBtn" style="padding:8px 12px;width:auto;">+</button>
+        </div>
+        <div class="muted-sm" id="friendSearchMsg" style="padding:0 12px 6px;"></div>
+
+        <div id="incomingReqBlock" class="hidden">
+          <div class="group-label" style="color:var(--green);">ВХОДЯЩИЕ ЗАЯВКИ</div>
+          <div id="incomingReqList" style="padding:0 8px 6px;display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
+
+        <div class="group-label">МОИ ДРУЗЬЯ (<span id="friendsCountLabel">0</span>)</div>
+        <div class="ch-list" id="friendsList"></div>
+      </div>
 
       <div class="call-mini hidden" id="callMiniStatus">
         <span style="font-size:12px;font-weight:700;color:var(--green);" id="callRoomLabel">Звонок</span>
@@ -390,7 +418,7 @@
         <div class="me-trigger" id="openProfileBtn">
           <div class="me-ava" id="myAvatar"></div>
           <div class="me-info">
-            <div class="me-name"><span id="myNickname">Гость</span> <span class="admin-badge hidden" id="myAdminBadge">ADMIN</span></div>
+            <div class="me-name"><span id="myNickname">Гость</span> <span class="role-badge role-owner hidden" id="myAdminBadge">Владелец</span></div>
             <div class="me-stat" id="myStatusText">В сети</div>
           </div>
         </div>
@@ -398,13 +426,25 @@
     </aside>
 
     <main class="main">
-      <header class="chat-head">
+      <!-- ЭКРАН-ЗАГЛУШКА, КОГДА ЧАТОВ НЕТ ИЛИ НИ ОДИН НЕ ВЫБРАН -->
+      <div class="empty-chat-hero" id="emptyChatHero">
+        <div class="hero-orb"></div>
+        <div class="hero-logo">L</div>
+        <h2>Добро пожаловать в Looma</h2>
+        <p id="emptyHeroSub">У вас пока не создано ни одного чата и не добавлен ни один друг. Начните общение прямо сейчас!</p>
+        <div class="hero-actions">
+          <button type="button" class="btn-primary" id="heroFindFriendBtn">Найти друга</button>
+          <button type="button" class="btn-sec" id="heroCreateChatBtn">Создать чат</button>
+        </div>
+      </div>
+
+      <header class="chat-head hidden" id="chatHeader">
         <div class="head-left">
-          <button type="button" class="icon-mini mobile-only" id="mobileMenuBtn">☰</button>
+          <button type="button" class="icon-mini mobile-only" id="mobileBackBtn" title="Назад к списку">←</button>
           <div class="head-ch-ico" id="currentChatIco">#</div>
-          <span class="head-title" id="currentChatName">общий-чат</span>
+          <span class="head-title" id="currentChatName">Чат</span>
           <span class="head-sep">|</span>
-          <span class="head-desc" id="currentChatDesc">Общение</span>
+          <span class="head-desc" id="currentChatDesc"></span>
         </div>
         <div class="head-right">
           <button type="button" class="icon-mini" id="openManageBtn" title="Добавить участников">➕</button>
@@ -439,7 +479,7 @@
         <button type="button" class="unpin-btn" id="unpinBtn">✕</button>
       </div>
 
-      <div class="messages" id="messages"></div>
+      <div class="messages hidden" id="messages"></div>
 
       <div class="stickers hidden" id="stickerPicker">
         <div class="sticker-tabs">
@@ -460,7 +500,7 @@
         <span id="typingText">Кто-то печатает...</span>
       </div>
 
-      <div class="input-box">
+      <div class="input-box hidden" id="inputBox">
         <div class="voice-preview-bar hidden" id="voicePreviewBar">
           <span class="vp-badge">🎙 Голосовое готово</span>
           <audio id="voicePreviewAudio" controls style="height:28px;flex:1;max-width:190px;"></audio>
@@ -480,7 +520,7 @@
       </div>
     </main>
 
-    <aside class="members-panel" id="membersPanel">
+    <aside class="members-panel hidden" id="membersPanel">
       <div class="members-search">
         <input type="text" id="memberSearchInput" placeholder="Поиск участников...">
       </div>
@@ -501,5 +541,4 @@
   <script src="script.js"></script>
 </body>
 </html>
-
 <!-- --- КОНЕЦ HTML ЧАСТИ 4 --- -->
