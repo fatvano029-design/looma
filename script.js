@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!user || !user.id) return;
     document.cookie = 'looma_uid=' + encodeURIComponent(user.id) + '; path=/; max-age=31536000; SameSite=Lax';
     try {
-      localStorage.setItem('looma_session_v3', user.id);
+      localStorage.setItem('looma_session_v4', user.id);
       const lightUser = Object.assign({}, user, { avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)' });
       localStorage.setItem('looma_cached_user', JSON.stringify(lightUser));
       localStorage.setItem('looma_cached_user_full', JSON.stringify(user));
@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function getSavedSessionId() {
     let id = null;
-    try { id = localStorage.getItem('looma_session_v3'); } catch (e) {}
+    try { id = localStorage.getItem('looma_session_v4'); } catch (e) {}
     if (!id) {
       const m = document.cookie.match(/(?:^|;\s*)looma_uid=([^;]+)/);
       if (m) id = decodeURIComponent(m);
@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearSession() {
     try {
-      localStorage.removeItem('looma_session_v3');
+      localStorage.removeItem('looma_session_v4');
       localStorage.removeItem('looma_cached_user');
       localStorage.removeItem('looma_cached_user_full');
     } catch (e) {}
@@ -193,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return {
       id: u.id, isAdmin: !!u.isAdmin, nick: u.nick || 'User', email: u.email || '', phone: u.phone || '', pass: u.pass || '',
       nickColor: u.nickColor || '#ffffff', themeAccent: u.themeAccent || '#00e676', bgTheme: u.bgTheme || 'default',
-      soundPack: u.soundPack || 'cyber', msgSize: u.msgSize || '15px', avaRadius: u.avaRadius || '50%',
+soundPack: u.soundPack || 'cyber', msgSize: u.msgSize || '15px', avaRadius: u.avaRadius || '50%',
 fxMode: u.fxMode || 'neon', status: u.status || 'В сети', bio: u.bio || '',
 avatarImg: u.avatarImg || null, banner: u.banner || 'linear-gradient(135deg,#1b2838,#7c4dff)',
 friends: Array.isArray(u.friends) ? u.friends : [],
@@ -220,7 +220,6 @@ fbGet('channels'),
 fbGet('messages')
 ]);
 accounts = uData ? Object.values(uData).map(normUserObj) : [];
-// Гарантируем наличие аккаунта Владельца LoomaAdmin в базе
 if (!accounts.some(a => a.id === 'admin_looma')) {
 const ownerAcc = normUserObj({
 id: 'admin_looma', isAdmin: true, nick: 'LoomaAdmin', email: 'fatvano029@gmail.com',
@@ -243,7 +242,7 @@ chatsData[chatId] = arr;
 }
 const myTextChs = getMyChannels().filter(c => c.type !== 'voice');
 if (activeChat && !myTextChs.some(c => c.id === activeChat)) {
-activeChat = myTextChs ? myTextChs.id : null;
+activeChat = myTextChs.length ? myTextChs[0].id : null;
 }
 }
 let activeUserId = getSavedSessionId();
@@ -378,7 +377,7 @@ enterLooma(found, false);
 }
 } catch (err) {
 playSound('error');
-$('authError').textContent = 'Ошибка соединения с Firebase: ' + err.message;
+$('authError').textContent = 'Ошибка соединения с сервером: ' + err.message;
 } finally {
 btn.disabled = false;
 btn.textContent = isRegister ? 'Создать единый аккаунт' : 'Войти';
@@ -545,12 +544,12 @@ btn.textContent = isRegister ? 'Создать единый аккаунт' : '�
     $('settingsModal').classList.add('hidden');
   };
 
-  document.querySelectorAll('.theme-opt').forEach(btn => btn.onclick = async () => { currentUser.themeAccent = btn.dataset.accent; applyTheme(currentUser); await saveUserDB(currentUser); });
-  document.querySelectorAll('.bg-opt').forEach(btn => btn.onclick = async () => { currentUser.bgTheme = btn.dataset.bg; applyTheme(currentUser); await saveUserDB(currentUser); });
-  document.querySelectorAll('.font-opt').forEach(btn => btn.onclick = async () => { currentUser.msgSize = btn.dataset.size; applyTheme(currentUser); await saveUserDB(currentUser); });
-  document.querySelectorAll('.shape-opt').forEach(btn => btn.onclick = async () => { currentUser.avaRadius = btn.dataset.radius; applyTheme(currentUser); await saveUserDB(currentUser); });
-  document.querySelectorAll('.fx-opt').forEach(btn => btn.onclick = async () => { currentUser.fxMode = btn.dataset.fx; applyTheme(currentUser); await saveUserDB(currentUser); });
-  document.querySelectorAll('.sound-opt').forEach(btn => btn.onclick = async () => { currentUser.soundPack = btn.dataset.sound; soundPack = btn.dataset.sound; applyTheme(currentUser); playSound('pop'); await saveUserDB(currentUser); });
+  document.querySelectorAll('.theme-opt').forEach(btn => btn.onclick = () => { currentUser.themeAccent = btn.dataset.accent; applyTheme(currentUser); saveUserDB(currentUser); });
+  document.querySelectorAll('.bg-opt').forEach(btn => btn.onclick = () => { currentUser.bgTheme = btn.dataset.bg; applyTheme(currentUser); saveUserDB(currentUser); });
+  document.querySelectorAll('.font-opt').forEach(btn => btn.onclick = () => { currentUser.msgSize = btn.dataset.size; applyTheme(currentUser); saveUserDB(currentUser); });
+  document.querySelectorAll('.shape-opt').forEach(btn => btn.onclick = () => { currentUser.avaRadius = btn.dataset.radius; applyTheme(currentUser); saveUserDB(currentUser); });
+  document.querySelectorAll('.fx-opt').forEach(btn => btn.onclick = () => { currentUser.fxMode = btn.dataset.fx; applyTheme(currentUser); saveUserDB(currentUser); });
+  document.querySelectorAll('.sound-opt').forEach(btn => btn.onclick = () => { currentUser.soundPack = btn.dataset.sound; soundPack = btn.dataset.sound; applyTheme(currentUser); playSound('pop'); saveUserDB(currentUser); });
 
   $('contactsForm').onsubmit = async e => {
     e.preventDefault();
@@ -562,7 +561,9 @@ btn.textContent = isRegister ? 'Создать единый аккаунт' : '�
     currentUser.email = newEmail; currentUser.phone = newPhone;
     const { error } = await saveUserDB(currentUser);
     if (error) { playSound('error'); $('contactMsg').style.color = '#ff5252'; return ($('contactMsg').textContent = 'Ошибка сохранения: ' + error.message); }
-    $('contactMsg').style.color = 'var(--green)'; $('contactMsg').textContent = 'Контакты сохранены в облаке!';
+    playSound('pop');
+    $('contactMsg').style.color = 'var(--green)';
+    $('contactMsg').textContent = 'Контакты сохранены в облаке!';
   };
 
   $('passForm').onsubmit = async e => {
@@ -581,13 +582,13 @@ btn.textContent = isRegister ? 'Создать единый аккаунт' : '�
     $('oldPass').value = '';
     $('newPass').value = '';
   };
-
-  $('deleteAccBtn').onclick = async () => {
-    if (currentUser.isAdmin) return alert('Главный аккаунт владельца нельзя удалить!');
+$('deleteAccBtn').onclick = async () => {
+if (currentUser.isAdmin) return alert('Главный аккаунт владельца нельзя удалить!');
 if (!confirm('Удалить аккаунт «' + currentUser.nick + '» навсегда?')) return;
 await fbDel('users/' + currentUser.id);
 clearSession(); location.reload();
 };
+// Запись голосовых и тёмный плеер предпросмотра
 let mediaRec = null, audioChunks = [], recSec = 0, recInt = null, cachedMicStream = null;
 let micReleaseTimeout = null, pendingVoiceUrl = null;
 function releaseMicLater() {
@@ -599,11 +600,47 @@ cachedMicStream = null;
 }
 }, 60000);
 }
-$('cancelVoiceBtn').onclick = () => {
+function resetVoicePreview() {
+const aud = $('voicePreviewAudio');
+aud.pause();
+aud.src = '';
 pendingVoiceUrl = null;
+$('vpPreviewPlayBtn').textContent = '▶';
+$('vpPreviewTime').textContent = '0:00';
+$('vpPreviewWave').querySelectorAll('.vp-bar').forEach(b => b.classList.remove('active'));
 $('voicePreviewBar').classList.add('hidden');
-$('voicePreviewAudio').src = '';
+}
+$('cancelVoiceBtn').onclick = resetVoicePreview;
+(function initVoicePreviewPlayer() {
+const aud = $('voicePreviewAudio');
+const btn = $('vpPreviewPlayBtn');
+const tm = $('vpPreviewTime');
+const wave = $('vpPreviewWave');
+const bars = wave.querySelectorAll('.vp-bar');
+const fmt = s => isFinite(s) ? Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') : '0:00';
+aud.onloadedmetadata = () => { tm.textContent = fmt(aud.duration); };
+btn.onclick = () => {
+if (aud.paused) { aud.play(); btn.textContent = '⏸'; }
+else { aud.pause(); btn.textContent = '▶'; }
 };
+aud.onpause = () => { btn.textContent = '▶'; };
+aud.onended = () => {
+btn.textContent = '▶';
+bars.forEach(b => b.classList.remove('active'));
+tm.textContent = fmt(aud.duration);
+};
+aud.ontimeupdate = () => {
+tm.textContent = fmt(aud.currentTime);
+const pct = aud.duration ? aud.currentTime / aud.duration : 0;
+const activeCount = Math.floor(pct * bars.length);
+bars.forEach((b, i) => b.classList.toggle('active', i <= activeCount));
+};
+wave.onclick = e => {
+if (!aud.duration) return;
+const rect = wave.getBoundingClientRect();
+aud.currentTime = ((e.clientX - rect.left) / rect.width) * aud.duration;
+};
+})();
 $('voiceBtn').onclick = async () => {
 clearTimeout(micReleaseTimeout);
 if (mediaRec && mediaRec.state === 'recording') return mediaRec.stop();
@@ -620,6 +657,7 @@ const reader = new FileReader();
 reader.onload = ev => {
 pendingVoiceUrl = ev.target.result;
 $('voicePreviewAudio').src = pendingVoiceUrl;
+$('vpPreviewPlayBtn').textContent = '▶';
 $('voicePreviewBar').classList.remove('hidden');
 $('messageInput').focus();
 };
@@ -707,7 +745,7 @@ $('toggleScreenBtn').classList.remove('active');
 function startActiveChatCall(withVideo) {
 if (!activeChat) return;
 const ch = channels.find(c => c.id === activeChat);
-if (!ch) return;
+if (!ch || ch.kind === 'channel') return;
 if (ch.id.startsWith('лс-')) {
 const otherId = Object.keys(ch.roles || {}).find(id => id !== activeUserId);
 const friend = accounts.find(a => a.id === otherId);
@@ -845,7 +883,9 @@ $('friendSearchMsg').textContent = 'Заявка отправлена польз
 $('sendFriendReqBtn').onclick = async () => {
 const q = $('friendSearchInput').value.trim();
 if (!q) return;
+$('friendSearchMsg').style.color = 'var(--muted)';
 $('friendSearchMsg').textContent = 'Поиск...';
+try {
 await loadAllFromServer();
 const qLower = q.toLowerCase();
 const qPhone = normPhone(q);
@@ -862,6 +902,11 @@ return ($('friendSearchMsg').textContent = 'Пользователь не най
 }
 $('friendSearchInput').value = '';
 await sendFriendRequestTo(found);
+} catch (err) {
+playSound('error');
+$('friendSearchMsg').style.color = '#ff5252';
+$('friendSearchMsg').textContent = 'Ошибка поиска: ' + err.message;
+}
 };
 function updateReqBadges() {
 if (!currentUser) return;
@@ -1042,6 +1087,10 @@ fList.appendChild(item);
     $('noWriteAlert').classList.toggle('hidden', writeAllowed);
     if (writeAllowed) $('messageInput').placeholder = 'Написать в #' + cur.id + '...';
 
+    // В каналах скрываем кнопки звонка и видеозвонка
+    const isChannel = cur.kind === 'channel';
+    $('startAudioCallBtn').style.display = isChannel ? 'none' : 'inline-flex';
+    $('startVideoCallBtn').style.display = isChannel ? 'none' : 'inline-flex';
     $('openManageBtn').style.display = canManage(cur) && !cur.id.startsWith('лс-') ? 'inline-flex' : 'none';
     updatePinnedBar();
   }
@@ -1182,8 +1231,7 @@ fList.appendChild(item);
       const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
       const avaText = u.avatarImg ? '' : USER_SVG;
       const role = ch.roles && ch.roles[u.id];
-
-      let roleBadge = '';
+let roleBadge = '';
 if (u.isAdmin || role === 'owner') roleBadge = 'Владелец';
 else if (role === 'admin') roleBadge = 'Админ';
 item.innerHTML =
@@ -1292,9 +1340,7 @@ const ch = channels.find(c => c.id === activeChat);
 if (!canWrite(ch)) return;
 if (pendingVoiceUrl) {
 const vData = pendingVoiceUrl;
-pendingVoiceUrl = null;
-$('voicePreviewBar').classList.add('hidden');
-$('voicePreviewAudio').src = '';
+resetVoicePreview();
 await pushMessage('audio', vData);
 }
 let txt = $('messageInput').value.trim();
@@ -1446,8 +1492,8 @@ $('ctxMsgReply').onclick = () => {
 const m = (chatsData[activeChat] || [])[ctxMsgIndex];
 if (!m) return;
 replyTo = m.author + ': ' + (m.type === 'text' ? m.content : '[' + m.type + ']');
-('replyAuthor').textContent = m.author; ('replyPreview').textContent = m.type === 'text' ? m.content : m.type;
-('replyBar').classList.remove('hidden'); ('messageInput').focus();
+$('replyAuthor').textContent = m.author; $('replyPreview').textContent = m.type === 'text' ? m.content : m.type;
+$('replyBar').classList.remove('hidden'); $('messageInput').focus();
 };
 $('ctxMsgPin').onclick = async () => {
 const m = (chatsData[activeChat] || [])[ctxMsgIndex];
@@ -1462,9 +1508,9 @@ if (target.id) await fbDel('messages/' + activeChat + '/' + target.id);
 msgs.splice(ctxMsgIndex, 1); renderMessages();
 }
 };
-('lightboxModal').onclick = () => ('lightboxModal').classList.add('hidden');
-('cancelReplyBtn').onclick = () => replyTo = null; ('replyBar').classList.add('hidden'); };
-document.addEventListener('click', () => { ('chContextMenu').classList.add('hidden'); ('msgContextMenu').classList.add('hidden'); });
+$('lightboxModal').onclick = () => $('lightboxModal').classList.add('hidden');
+$('cancelReplyBtn').onclick = () => { replyTo = null; $('replyBar').classList.add('hidden'); };
+document.addEventListener('click', () => { $('chContextMenu').classList.add('hidden'); $('msgContextMenu').classList.add('hidden'); });
 const STICKER_CATS = {
 games: ['🎮', '👾', '🏆', '⚔️', '🛡️', '🎯', '🎲', '🕹️', '🐉', '👑', '💎', '🚀'],
 faces: ['😎', '😂', '🥳', '🤯', '🥶', '😈', '👻', '🤖', '💀', '👽', '🤡', '🫡'],
@@ -1476,15 +1522,16 @@ $('stickerGrid').innerHTML = '';
 (STICKER_CATS[cat] || STICKER_CATS.games).forEach(em => {
 const b = document.createElement('button');
 b.type = 'button'; b.className = 'sticker-item'; b.textContent = em;
-b.onclick = () => { pushMessage('sticker', em); ('stickerPicker').classList.add('hidden'); };('stickerGrid').appendChild(b);
+b.onclick = () => { pushMessage('sticker', em); $('stickerPicker').classList.add('hidden'); };
+$('stickerGrid').appendChild(b);
 });
 }
 renderStickers('games');
 document.querySelectorAll('.st-tab').forEach(tab => {
 tab.onclick = e => { e.stopPropagation(); document.querySelectorAll('.st-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); renderStickers(tab.dataset.cat); };
 });
-('stickerBtn').onclick = e => e.stopPropagation(); ('stickerPicker').classList.toggle('hidden'); };
-document.addEventListener('click', e => { if (!$('stickerPicker').contains(e.target) && e.target !== ('stickerBtn')) ('stickerPicker').classList.add('hidden'); });
+$('stickerBtn').onclick = e => { e.stopPropagation(); $('stickerPicker').classList.toggle('hidden'); };
+document.addEventListener('click', e => { if (!$('stickerPicker').contains(e.target) && e.target !== $('stickerBtn')) $('stickerPicker').classList.add('hidden'); });
 function handleFileUpload(f) {
 if (!f) return;
 if (f.type.startsWith('image/')) compressImage(f, 800, url => pushMessage('image', url));
@@ -1494,7 +1541,8 @@ reader.onload = ev => pushMessage('video', ev.target.result);
 reader.readAsDataURL(f);
 }
 }
-$('attachBtn').onclick = () => \(('mediaInput').click();\)('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
+$('attachBtn').onclick = () => $('mediaInput').click();
+$('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
 document.addEventListener('paste', e => { const imgItem = (e.clipboardData ? Array.from(e.clipboardData.items) : []).find(i => i.type.startsWith('image/')); if (imgItem) handleFileUpload(imgItem.getAsFile()); });
 $('memberSearchInput').oninput = renderMembers;
 $('dmUserBtn').onclick = async () => {
@@ -1510,8 +1558,10 @@ $('appRoot').classList.remove('mob-list-view');
 switchSideTab('chats');
 renderChannels(); renderMessages(); renderMembers(); $('viewUserModal').classList.add('hidden');
 };
-$('soundToggleBtn').onclick = () => { soundOn = !soundOn; ('soundToggleBtn').classList.toggle('active', soundOn); if (soundOn) playSound('click'); };('membersToggleBtn').onclick = () => {
-const isHidden = \(('membersPanel').classList.toggle('hidden');\)('membersToggleBtn').classList.toggle('active', !isHidden);
+$('soundToggleBtn').onclick = () => { soundOn = !soundOn; $('soundToggleBtn').classList.toggle('active', soundOn); if (soundOn) playSound('click'); };
+$('membersToggleBtn').onclick = () => {
+const isHidden = $('membersPanel').classList.toggle('hidden');
+$('membersToggleBtn').classList.toggle('active', !isHidden);
 if (window.innerWidth <= 768) $('mobileBackdrop').classList.toggle('hidden', isHidden);
 };
 let typingTimer = null, lastTypingSent = 0;
@@ -1555,7 +1605,6 @@ if (!currentUser || !activeChat || Date.now() - lastTypingSent < 1500) return;
 lastTypingSent = Date.now();
 fbSet('typing/' + activeChat, { userId: activeUserId, nick: currentUser.nick, ts: Date.now() }).catch(() => {});
 });
-// Живая синхронизация сообщений, заявок в друзья и статуса "печатает..." каждые 1.2 сек
 setInterval(async () => {
 if (!currentUser) return;
 try {
