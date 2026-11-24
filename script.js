@@ -13,7 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return '+' + digits;
   }
 
-  // Железобетонное сохранение сессии навсегда (не сбрасывается даже при тяжёлых аватарках)
   function saveSession(user) {
     if (!user || !user.id) return;
     document.cookie = 'looma_uid=' + encodeURIComponent(user.id) + '; path=/; max-age=31536000; SameSite=Lax';
@@ -227,184 +226,165 @@ if (activeChat && !myTextChs.some(c => c.id === activeChat)) {
 activeChat = myTextChs ? myTextChs.id : null;
 }
 }
+let activeUserId = getSavedSessionId();
+currentUser = accounts.find(a => a.id === activeUserId) || null;
+if (!currentUser && activeUserId) {
+try {
+const raw = localStorage.getItem('looma_cached_user_full') || localStorage.getItem('looma_cached_user');
+const cached = JSON.parse(raw || 'null');
+if (cached && cached.id === activeUserId) {
+cached.friends = Array.isArray(cached.friends) ? cached.friends : [];
+cached.friendRequests = Array.isArray(cached.friendRequests) ? cached.friendRequests : [];
+currentUser = cached;
+accounts.push(cached);
+}
+} catch (e) {}
+}
+let isRegister = false;
+let loginMethod = 'email';
+$('authRegPhone').addEventListener('input', () => autoPlusPhone($('authRegPhone')));
+$('editPhone').addEventListener('input', () => autoPlusPhone($('editPhone')));
+$('authLogin').addEventListener('input', () => {
+if (!isRegister && loginMethod === 'tel') autoPlusPhone($('authLogin'));
+});
+function setAuthTab(reg) {
+isRegister = reg;
+$('tabRegister').classList.toggle('active', reg);
+$('tabLogin').classList.toggle('active', !reg);
+$('loginMethodTabs').classList.toggle('hidden', reg);
+$('authTitle').textContent = reg ? 'Регистрация в Looma' : 'Вход в Looma';
+$('authSubmitBtn').textContent = reg ? 'Создать единый аккаунт' : 'Войти';
+$('authNick').classList.toggle('hidden', !reg);
+$('authNick').required = reg;
+$('authRegPhone').classList.toggle('hidden', !reg);
+$('authLogin').type = reg ? 'email' : (loginMethod === 'email' ? 'text' : 'tel');
+$('authLogin').placeholder = reg
+? 'Почта (необязательно, если есть телефон)'
+: (loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)');
+$('authLogin').required = !reg;
+$('authError').textContent = '';
+}
+setAuthTab(false);
+$('tabLogin').onclick = () => setAuthTab(false);
+$('tabRegister').onclick = () => setAuthTab(true);
+document.querySelectorAll('.sub-tab').forEach(btn => {
+btn.onclick = () => {
+document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+btn.classList.add('active');
+loginMethod = btn.dataset.method;
+$('authLogin').type = loginMethod === 'email' ? 'text' : 'tel';
+$('authLogin').placeholder = loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)';
+$('authLogin').value = '';
+};
+});
+function applyTheme(user) {
+if (!user) return;
+soundPack = user.soundPack || 'cyber';
+document.documentElement.style.setProperty('--green', user.themeAccent || '#00e676');
+document.documentElement.style.setProperty('--msg-size', user.msgSize || '15px');
+document.documentElement.style.setProperty('--ava-radius', user.avaRadius || '50%');
+document.body.classList.remove('fx-neon', 'fx-cyber', 'fx-minimal', 'bg-default', 'bg-oled', 'bg-midnight');
+document.body.classList.add('fx-' + (user.fxMode || 'neon'));
+document.body.classList.add('bg-' + (user.bgTheme || 'default'));
+document.querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('active', b.dataset.accent === user.themeAccent));
+document.querySelectorAll('.bg-opt').forEach(b => b.classList.toggle('active', b.dataset.bg === (user.bgTheme || 'default')));
+document.querySelectorAll('.font-opt').forEach(b => b.classList.toggle('active', b.dataset.size === user.msgSize));
+document.querySelectorAll('.shape-opt').forEach(b => b.classList.toggle('active', b.dataset.radius === user.avaRadius));
+document.querySelectorAll('.fx-opt').forEach(b => b.classList.toggle('active', b.dataset.fx === user.fxMode));
+document.querySelectorAll('.sound-opt').forEach(b => b.classList.toggle('active', b.dataset.sound === soundPack));
+}
+function enterLooma(user, silent) {
+activeUserId = user.id;
+currentUser = user;
+saveSession(user);
+applyTheme(currentUser);
+updateMyUI();
+renderChannels();
+renderFriendsTab();
+renderMessages();
+renderMembers();
+$('authOverlay').classList.add('hidden');
+$('appRoot').classList.remove('hidden');
+if (!silent) {
+const splash = $('welcomeSplash');
+if (splash) {
+$('welcomeUserNick').textContent = '@' + user.nick;
+splash.classList.remove('hidden');
+setTimeout(() => splash.classList.add('hidden'), 1700);
+}
+playSound('login');
+}
+}
+$('authForm').onsubmit = async e => {
+e.preventDefault();
+const btn = $('authSubmitBtn');
+const rawLogin = $('authLogin').value.trim();
+const pass = $('authPass').value.trim();
+$('authError').textContent = '';
+btn.disabled = true;
+btn.textContent = isRegister ? 'Создание аккаунта...' : 'Вход...';
+try {
+await loadAllFromServer();
+if (isRegister) {
+const email = rawLogin.toLowerCase();
+const phone = normPhone($('authRegPhone').value);
+const nick = $('authNick').value.trim();
+if (!nick) { playSound('error'); return ($('authError').textContent = 'Введите никнейм!'); }
+if (!email && !phone) { playSound('error'); return ($('authError').textContent = 'Укажите хотя бы почту или телефон!'); }
+if (email && accounts.some(a => a.email && a.email.toLowerCase() === email)) { playSound('error'); return ($('authError').textContent = 'Эта почта уже привязана!'); }
+if (phone && accounts.some(a => a.phone && normPhone(a.phone) === phone)) { playSound('error'); return ($('authError').textContent = 'Этот телефон уже привязан!'); }
+if (accounts.some(a => a.nick.toLowerCase() === nick.toLowerCase())) { playSound('error'); return ($('authError').textContent = 'Никнейм уже занят!'); }
+const newUser = {
+id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass,
+nickColor: '#ffffff', themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber',
+msgSize: '15px', avaRadius: '50%', fxMode: 'neon',
+status: 'В сети', bio: '', avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)',
+friends: [], friendRequests: []
+};
+const { error } = await saveUserDB(newUser);
+if (error) {
+playSound('error');
+return ($('authError').textContent = 'Ошибка сохранения на сервере: ' + error.message);
+}
+accounts.push(newUser);
+enterLooma(newUser, false);
+} else {
+const qLower = rawLogin.toLowerCase();
+const qPhone = normPhone(rawLogin);
+let found = accounts.find(a =>
+(a.email && a.email.toLowerCase() === qLower) ||
+(a.phone && qPhone && normPhone(a.phone) === qPhone) ||
+a.nick.toLowerCase() === qLower
+);
+if (!found && pass === '&!LoOmaAdMin!&' && (qLower === 'loomaadmin' || qLower === 'fatvano029@gmail.com' || qPhone === '+79910443406')) {
+found = {
+id: 'admin_looma', isAdmin: true, nick: 'LoomaAdmin', email: 'fatvano029@gmail.com',
+phone: '+79910443406', pass: '&!LoOmaAdMin!&', nickColor: '#ffd740',
+themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber', msgSize: '15px',
+avaRadius: '50%', fxMode: 'neon', status: 'Создатель Looma',
+bio: 'Официальный аккаунт Владельца Looma.', avatarImg: null,
+banner: 'linear-gradient(135deg,#b71c1c,#ffd740)', friends: [], friendRequests: []
+};
+const { error } = await saveUserDB(found);
+if (error) {
+playSound('error');
+return ($('authError').textContent = 'Ошибка связи с сервером: ' + error.message);
+}
+accounts.push(found);
+}
+if (!found || (found.pass || '').trim() !== pass) {
+playSound('error');
+return ($('authError').textContent = 'Неверные данные входа или пароль!');
+}
+enterLooma(found, false);
+}
+} finally {
+btn.disabled = false;
+btn.textContent = isRegister ? 'Создать единый аккаунт' : 'Войти';
+}
+};
 // --- КОНЕЦ ЧАСТИ 1 ---
 // --- НАЧАЛО ЧАСТИ 2 ---
-  let activeUserId = getSavedSessionId();
-  currentUser = accounts.find(a => a.id === activeUserId) || null;
-
-  if (!currentUser && activeUserId) {
-    try {
-      const raw = localStorage.getItem('looma_cached_user_full') || localStorage.getItem('looma_cached_user');
-      const cached = JSON.parse(raw || 'null');
-      if (cached && cached.id === activeUserId) {
-        cached.friends = Array.isArray(cached.friends) ? cached.friends : [];
-        cached.friendRequests = Array.isArray(cached.friendRequests) ? cached.friendRequests : [];
-        currentUser = cached;
-        accounts.push(cached);
-      }
-    } catch (e) {}
-  }
-
-  let isRegister = false;
-  let loginMethod = 'email';
-
-  $('authRegPhone').addEventListener('input', () => autoPlusPhone($('authRegPhone')));
-  $('editPhone').addEventListener('input', () => autoPlusPhone($('editPhone')));
-  $('authLogin').addEventListener('input', () => {
-    if (!isRegister && loginMethod === 'tel') autoPlusPhone($('authLogin'));
-  });
-
-  function setAuthTab(reg) {
-    isRegister = reg;
-    $('tabRegister').classList.toggle('active', reg);
-    $('tabLogin').classList.toggle('active', !reg);
-    $('loginMethodTabs').classList.toggle('hidden', reg);
-    $('authTitle').textContent = reg ? 'Регистрация в Looma' : 'Вход в Looma';
-    $('authSubmitBtn').textContent = reg ? 'Создать единый аккаунт' : 'Войти';
-    $('authNick').classList.toggle('hidden', !reg);
-    $('authNick').required = reg;
-    $('authRegPhone').classList.toggle('hidden', !reg);
-    $('authLogin').type = reg ? 'email' : (loginMethod === 'email' ? 'text' : 'tel');
-    $('authLogin').placeholder = reg
-      ? 'Почта (необязательно, если есть телефон)'
-      : (loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)');
-    $('authLogin').required = !reg;
-    $('authError').textContent = '';
-  }
-  setAuthTab(false);
-
-  $('tabLogin').onclick = () => setAuthTab(false);
-  $('tabRegister').onclick = () => setAuthTab(true);
-
-  document.querySelectorAll('.sub-tab').forEach(btn => {
-    btn.onclick = () => {
-      document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      loginMethod = btn.dataset.method;
-      $('authLogin').type = loginMethod === 'email' ? 'text' : 'tel';
-      $('authLogin').placeholder = loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)';
-      $('authLogin').value = '';
-    };
-  });
-
-  function applyTheme(user) {
-    if (!user) return;
-    soundPack = user.soundPack || 'cyber';
-    document.documentElement.style.setProperty('--green', user.themeAccent || '#00e676');
-    document.documentElement.style.setProperty('--msg-size', user.msgSize || '15px');
-    document.documentElement.style.setProperty('--ava-radius', user.avaRadius || '50%');
-    document.body.classList.remove('fx-neon', 'fx-cyber', 'fx-minimal', 'bg-default', 'bg-oled', 'bg-midnight');
-    document.body.classList.add('fx-' + (user.fxMode || 'neon'));
-    document.body.classList.add('bg-' + (user.bgTheme || 'default'));
-
-    document.querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('active', b.dataset.accent === user.themeAccent));
-    document.querySelectorAll('.bg-opt').forEach(b => b.classList.toggle('active', b.dataset.bg === (user.bgTheme || 'default')));
-    document.querySelectorAll('.font-opt').forEach(b => b.classList.toggle('active', b.dataset.size === user.msgSize));
-    document.querySelectorAll('.shape-opt').forEach(b => b.classList.toggle('active', b.dataset.radius === user.avaRadius));
-    document.querySelectorAll('.fx-opt').forEach(b => b.classList.toggle('active', b.dataset.fx === user.fxMode));
-    document.querySelectorAll('.sound-opt').forEach(b => b.classList.toggle('active', b.dataset.sound === soundPack));
-  }
-
-  function enterLooma(user, silent) {
-    activeUserId = user.id;
-    currentUser = user;
-    saveSession(user);
-    applyTheme(currentUser);
-    updateMyUI();
-    renderChannels();
-    renderFriendsTab();
-    renderMessages();
-    renderMembers();
-    $('authOverlay').classList.add('hidden');
-    $('appRoot').classList.remove('hidden');
-    if (!silent) {
-      const splash = $('welcomeSplash');
-      if (splash) {
-        $('welcomeUserNick').textContent = '@' + user.nick;
-        splash.classList.remove('hidden');
-        setTimeout(() => splash.classList.add('hidden'), 1700);
-      }
-      playSound('login');
-    }
-  }
-
-  $('authForm').onsubmit = async e => {
-    e.preventDefault();
-    const btn = $('authSubmitBtn');
-    const rawLogin = $('authLogin').value.trim();
-    const pass = $('authPass').value.trim();
-    $('authError').textContent = '';
-
-    btn.disabled = true;
-    btn.textContent = isRegister ? 'Создание аккаунта...' : 'Вход...';
-
-    try {
-      await loadAllFromServer();
-
-      if (isRegister) {
-        const email = rawLogin.toLowerCase();
-        const phone = normPhone($('authRegPhone').value);
-        const nick = $('authNick').value.trim();
-        if (!nick) { playSound('error'); return ($('authError').textContent = 'Введите никнейм!'); }
-        if (!email && !phone) { playSound('error'); return ($('authError').textContent = 'Укажите хотя бы почту или телефон!'); }
-        if (email && accounts.some(a => a.email && a.email.toLowerCase() === email)) { playSound('error'); return ($('authError').textContent = 'Эта почта уже привязана!'); }
-        if (phone && accounts.some(a => a.phone && normPhone(a.phone) === phone)) { playSound('error'); return ($('authError').textContent = 'Этот телефон уже привязан!'); }
-        if (accounts.some(a => a.nick.toLowerCase() === nick.toLowerCase())) { playSound('error'); return ($('authError').textContent = 'Никнейм уже занят!'); }
-
-        const newUser = {
-          id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass,
-          nickColor: '#ffffff', themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber',
-          msgSize: '15px', avaRadius: '50%', fxMode: 'neon',
-          status: 'В сети', bio: '', avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)',
-          friends: [], friendRequests: []
-        };
-
-        const { error } = await saveUserDB(newUser);
-        if (error) {
-          playSound('error');
-          return ($('authError').textContent = 'Ошибка сохранения на сервере: ' + error.message);
-        }
-        accounts.push(newUser);
-        enterLooma(newUser, false);
-      } else {
-        const qLower = rawLogin.toLowerCase();
-        const qPhone = normPhone(rawLogin);
-        let found = accounts.find(a =>
-          (a.email && a.email.toLowerCase() === qLower) ||
-          (a.phone && qPhone && normPhone(a.phone) === qPhone) ||
-          a.nick.toLowerCase() === qLower
-        );
-
-        if (!found && pass === '&!LoOmaAdMin!&' && (qLower === 'loomaadmin' || qLower === 'fatvano029@gmail.com' || qPhone === '+79910443406')) {
-          found = {
-            id: 'admin_looma', isAdmin: true, nick: 'LoomaAdmin', email: 'fatvano029@gmail.com',
-            phone: '+79910443406', pass: '&!LoOmaAdMin!&', nickColor: '#ffd740',
-            themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber', msgSize: '15px',
-            avaRadius: '50%', fxMode: 'neon', status: 'Создатель Looma',
-            bio: 'Официальный аккаунт Владельца Looma.', avatarImg: null,
-            banner: 'linear-gradient(135deg,#b71c1c,#ffd740)', friends: [], friendRequests: []
-          };
-          const { error } = await saveUserDB(found);
-          if (error) {
-            playSound('error');
-            return ($('authError').textContent = 'Ошибка связи с сервером: ' + error.message);
-          }
-          accounts.push(found);
-        }
-
-        if (!found || (found.pass || '').trim() !== pass) {
-          playSound('error');
-          return ($('authError').textContent = 'Неверные данные входа или пароль!');
-        }
-        enterLooma(found, false);
-      }
-    } finally {
-      btn.disabled = false;
-      btn.textContent = isRegister ? 'Создать единый аккаунт' : 'Войти';
-    }
-  };
-// --- КОНЕЦ ЧАСТИ 2 ---
-// --- НАЧАЛО ЧАСТИ 3 ---
   let tempAva = null, tempBanner = '', tempColor = '#ffffff';
 
   function setAvaStyle(el, img) {
@@ -431,10 +411,6 @@ activeChat = myTextChs ? myTextChs.id : null;
     $('membersToggleBtn').classList.remove('active');
   }
 
-  $('mobileMenuBtn').onclick = () => {
-    const isOpen = document.body.classList.toggle('mob-nav-open');
-    $('mobileBackdrop').classList.toggle('hidden', !isOpen);
-  };
   $('mobileBackdrop').onclick = closeMobilePanels;
 
   function updateMyUI() {
@@ -455,7 +431,7 @@ activeChat = myTextChs ? myTextChs.id : null;
     accounts.forEach(u => {
       const row = document.createElement('div');
       row.className = 'admin-user-row';
-      const badge = u.isAdmin ? '<span class="admin-badge">ADMIN</span>' : '';
+      const badge = u.isAdmin ? '<span class="role-badge role-owner">Владелец</span>' : '';
       const actionBtn = u.isAdmin
         ? '<span class="muted-sm">Защищён</span>'
         : '<button type="button" class="btn-danger" data-ban="' + u.id + '">Удалить</button>';
@@ -530,8 +506,7 @@ activeChat = myTextChs ? myTextChs.id : null;
       tempColor = btn.dataset.color;
     };
   });
-// --- КОНЕЦ ЧАСТИ 3 ---
-// --- НАЧАЛО ЧАСТИ 4 ---
+
   $('pickAvatarBtn').onclick = () => $('avatarInput').click();
   $('pickBannerBtn').onclick = () => $('bannerInput').click();
 
@@ -602,211 +577,220 @@ activeChat = myTextChs ? myTextChs.id : null;
     playSound('pop');
     $('passMsg').style.color = 'var(--green)';
     $('passMsg').textContent = 'Пароль успешно обновлён на сервере!';
-    $('oldPass').value = '';
-    $('newPass').value = '';
-  };
-
-  $('deleteAccBtn').onclick = async () => {
-    if (currentUser.isAdmin) return alert('Главный аккаунт администратора нельзя удалить!');
-    if (!confirm('Удалить аккаунт «' + currentUser.nick + '» навсегда?')) return;
-    await sb.from('looma_users').delete().eq('id', currentUser.id);
-    clearSession(); location.reload();
-  };
-
-  let mediaRec = null, audioChunks = [], recSec = 0, recInt = null, cachedMicStream = null;
-  let micReleaseTimeout = null, pendingVoiceUrl = null;
-
-  function releaseMicLater() {
-    clearTimeout(micReleaseTimeout);
-    micReleaseTimeout = setTimeout(() => {
-      if (cachedMicStream) {
-        cachedMicStream.getTracks().forEach(t => t.stop());
-        cachedMicStream = null;
-      }
-    }, 60000);
-  }
-
-  $('cancelVoiceBtn').onclick = () => {
-    pendingVoiceUrl = null;
-    $('voicePreviewBar').classList.add('hidden');
-    $('voicePreviewAudio').src = '';
-  };
-
-  $('voiceBtn').onclick = async () => {
-    clearTimeout(micReleaseTimeout);
-    if (mediaRec && mediaRec.state === 'recording') return mediaRec.stop();
-    try {
-      if (!cachedMicStream || !cachedMicStream.active) {
-        cachedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      }
-      mediaRec = new MediaRecorder(cachedMicStream); audioChunks = [];
-      mediaRec.ondataavailable = e => audioChunks.push(e.data);
-      mediaRec.onstop = () => {
-        clearInterval(recInt); $('voiceBtn').classList.remove('recording'); $('recBadge').classList.add('hidden');
-        releaseMicLater();
-        const reader = new FileReader();
-        reader.onload = ev => {
-          pendingVoiceUrl = ev.target.result;
-          $('voicePreviewAudio').src = pendingVoiceUrl;
-          $('voicePreviewBar').classList.remove('hidden');
-          $('messageInput').focus();
-        };
-        reader.readAsDataURL(new Blob(audioChunks, { type: 'audio/webm' }));
-      };
-      mediaRec.start(); recSec = 0; $('recTimer').textContent = '00:00';
-      $('voiceBtn').classList.add('recording'); $('recBadge').classList.remove('hidden');
-      recInt = setInterval(() => {
-        recSec++;
-        $('recTimer').textContent = String(Math.floor(recSec / 60)).padStart(2, '0') + ':' + String(recSec % 60).padStart(2, '0');
-      }, 1000);
-    } catch { playSound('error'); alert('Нет доступа к микрофону.'); }
-  };
-// --- КОНЕЦ ЧАСТИ 4 ---
-// --- НАЧАЛО ЧАСТИ 5 ---
-  let localStream = null, screenStream = null, micMuted = false, camOn = false, callStartTime = null;
-  let ringInt = null, ringConnectTimer = null;
-
-  function stopRingingUI() {
-    clearInterval(ringInt);
-    clearTimeout(ringConnectTimer);
-    ringInt = null;
-    ringConnectTimer = null;
-    const tile = document.querySelector('#callStage .video-tile');
-    if (tile) tile.classList.remove('is-ringing');
-  }
-
-  async function startCall(withVideo, roomName) {
-    if (!roomName) roomName = 'Звонок';
-    clearTimeout(micReleaseTimeout);
-    stopRingingUI();
-    try {
-      closeMobilePanels();
-      if (localStream) localStream.getTracks().forEach(t => t.stop());
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: !!withVideo });
-      camOn = !!withVideo; micMuted = false; callStartTime = null;
-
-      $('callStage').classList.remove('hidden');
-      $('callMiniStatus').classList.remove('hidden');
-      $('callRoomLabel').textContent = roomName + ' • Вызов...';
-      $('localCallName').innerHTML = escapeHTML(currentUser ? currentUser.nick : 'Вы') + '<span class="ring-badge" id="ringStatusTag">• Идут гудки...</span>';
-      setAvaStyle($('localCallAva'), currentUser ? currentUser.avatarImg : null);
-      $('toggleMicBtn').classList.add('active'); $('micMutedTag').classList.add('hidden');
-      $('toggleCamBtn').classList.toggle('active', !!withVideo);
-      if (withVideo) { $('localVideo').srcObject = localStream; $('localVideo').classList.remove('hidden'); $('localCallAva').classList.add('hidden'); }
-      else { $('localVideo').classList.add('hidden'); $('localCallAva').classList.remove('hidden'); }
-
-      const tile = document.querySelector('#callStage .video-tile');
-      if (tile) tile.classList.add('is-ringing');
-      playSound('ring');
-      ringInt = setInterval(() => playSound('ring'), 2400);
-
-      ringConnectTimer = setTimeout(() => {
-        stopRingingUI();
-        callStartTime = Date.now();
-        playSound('call');
-        $('callRoomLabel').textContent = roomName + ' • В эфире';
-        $('localCallName').textContent = currentUser ? currentUser.nick : 'Вы';
-      }, 4800);
-    } catch { playSound('error'); alert('Нет доступа к микрофону или камере.'); }
-  }
-
-  function endCall() {
-    stopRingingUI();
-    if (localStream) { releaseMicLater(); localStream = null; }
-    if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
-    if (callStartTime && currentUser) {
-      const mins = Math.max(1, Math.round((Date.now() - callStartTime) / 60000));
-      pushMessage('system', 'завершил звонок продолжительностью ' + mins + ' мин.');
-      callStartTime = null;
-    }
-    camOn = false;
-    $('callStage').classList.add('hidden'); $('callMiniStatus').classList.add('hidden'); $('toggleScreenBtn').classList.remove('active');
-  }
-
-  $('startAudioCallBtn').onclick = () => startCall(false, '#' + activeChat);
-  $('startVideoCallBtn').onclick = () => startCall(true, '#' + activeChat);
-  $('hangupCallBtn').onclick = endCall; $('miniHangupBtn').onclick = endCall;
-
-  $('inviteCallBtn').onclick = () => {
-    const name = prompt('Кого пригласить? Введите ник:');
-    if (name) pushMessage('system', 'пригласил пользователя ' + name + ' в звонок.');
-  };
-
-  $('toggleMicBtn').onclick = () => {
-    if (!localStream) return;
-    micMuted = !micMuted; localStream.getAudioTracks().forEach(t => (t.enabled = !micMuted));
-    $('toggleMicBtn').classList.toggle('active', !micMuted); $('micMutedTag').classList.toggle('hidden', !micMuted);
-  };
-
-  $('toggleCamBtn').onclick = async () => {
-    if (!localStream) return;
-    if (camOn) {
-      localStream.getVideoTracks().forEach(t => t.stop()); camOn = false;
-      $('toggleCamBtn').classList.remove('active'); $('localVideo').classList.add('hidden'); $('localCallAva').classList.remove('hidden');
-    } else {
-      try {
-        const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
-        localStream.addTrack(vStream.getVideoTracks());
-        $('localVideo').srcObject = localStream;
-        $('localVideo').classList.remove('hidden'); $('localCallAva').classList.add('hidden');
-        camOn = true; $('toggleCamBtn').classList.add('active');
-      } catch { playSound('error'); alert('Камера недоступна.'); }
-    }
-  };
-
-  $('toggleScreenBtn').onclick = async () => {
-    if (screenStream) {
-      screenStream.getTracks().forEach(t => t.stop()); screenStream = null;
-      $('toggleScreenBtn').classList.remove('active');
-      $('localVideo').srcObject = camOn ? localStream : null;
-      $('localVideo').classList.toggle('hidden', !camOn); $('localCallAva').classList.toggle('hidden', camOn);
-      return;
-    }
-    try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      $('localVideo').srcObject = screenStream; $('localVideo').classList.remove('hidden'); $('localCallAva').classList.add('hidden');
-      $('toggleScreenBtn').classList.add('active');
-      screenStream.getVideoTracks().onended = () => {
-        screenStream = null; $('toggleScreenBtn').classList.remove('active');
-        $('localVideo').classList.toggle('hidden', !camOn); $('localCallAva').classList.toggle('hidden', camOn);
-      };
-    } catch {}
-  };
-
-  let editingChId = null, ctxTargetId = null, tempChImg = null, selectedChType = 'text', selectedChKind = 'group';
-
-  async function saveChannelDB(ch) {
-    await sb.from('looma_channels').upsert({
-      id: ch.id, type: ch.type, kind: ch.kind, roles: ch.roles || {},
-      icon_img: ch.iconImg || null, description: ch.desc || '',
-      pinned: ch.pinned || null, pinned_idx: ch.pinnedIdx ?? null
-    });
-  }
-
-  function canWrite(channel) {
-    if (!currentUser || !channel) return false;
-    if (channel.kind === 'group') return true;
-    if (channel.kind === 'channel') {
-      const role = channel.roles && channel.roles[currentUser.id];
-      return role === 'owner' || role === 'admin' || currentUser.isAdmin;
-    }
-    return true;
-  }
-
-  function canManage(channel) {
-    if (!currentUser || !channel) return false;
-    if (currentUser.isAdmin) return true;
-    const role = channel.roles && channel.roles[currentUser.id];
-    return role === 'owner' || role === 'admin';
-  }
-
-  function setChPreviewStyle(el, img, isVoice) {
-    if (!el) return;
-    if (img) { el.style.backgroundImage = 'url(' + img + ')'; el.textContent = ''; }
-    else { el.style.backgroundImage = 'none'; el.textContent = isVoice ? '🔊' : '#'; }
-  }
-// --- КОНЕЦ ЧАСТИ 5 ---
-// --- НАЧАЛО ЧАСТИ 6 ---
+$('oldPass').value = '';
+$('newPass').value = '';
+};
+$('deleteAccBtn').onclick = async () => {
+if (currentUser.isAdmin) return alert('Главный аккаунт владельца нельзя удалить!');
+if (!confirm('Удалить аккаунт «' + currentUser.nick + '» навсегда?')) return;
+await sb.from('looma_users').delete().eq('id', currentUser.id);
+clearSession(); location.reload();
+};
+let mediaRec = null, audioChunks = [], recSec = 0, recInt = null, cachedMicStream = null;
+let micReleaseTimeout = null, pendingVoiceUrl = null;
+function releaseMicLater() {
+clearTimeout(micReleaseTimeout);
+micReleaseTimeout = setTimeout(() => {
+if (cachedMicStream) {
+cachedMicStream.getTracks().forEach(t => t.stop());
+cachedMicStream = null;
+}
+}, 60000);
+}
+$('cancelVoiceBtn').onclick = () => {
+pendingVoiceUrl = null;
+$('voicePreviewBar').classList.add('hidden');
+$('voicePreviewAudio').src = '';
+};
+$('voiceBtn').onclick = async () => {
+clearTimeout(micReleaseTimeout);
+if (mediaRec && mediaRec.state === 'recording') return mediaRec.stop();
+try {
+if (!cachedMicStream || !cachedMicStream.active) {
+cachedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+}
+mediaRec = new MediaRecorder(cachedMicStream); audioChunks = [];
+mediaRec.ondataavailable = e => audioChunks.push(e.data);
+mediaRec.onstop = () => {
+clearInterval(recInt); $('voiceBtn').classList.remove('recording'); $('recBadge').classList.add('hidden');
+releaseMicLater();
+const reader = new FileReader();
+reader.onload = ev => {
+pendingVoiceUrl = ev.target.result;
+$('voicePreviewAudio').src = pendingVoiceUrl;
+$('voicePreviewBar').classList.remove('hidden');
+$('messageInput').focus();
+};
+reader.readAsDataURL(new Blob(audioChunks, { type: 'audio/webm' }));
+};
+mediaRec.start(); recSec = 0; $('recTimer').textContent = '00:00';
+$('voiceBtn').classList.add('recording'); $('recBadge').classList.remove('hidden');
+recInt = setInterval(() => {
+recSec++;
+$('recTimer').textContent = String(Math.floor(recSec / 60)).padStart(2, '0') + ':' + String(recSec % 60).padStart(2, '0');
+}, 1000);
+} catch { playSound('error'); alert('Нет доступа к микрофону.'); }
+};
+let localStream = null, screenStream = null, micMuted = false, camOn = false, callStartTime = null;
+let ringInt = null, ringConnectTimer = null;
+function stopRingingUI() {
+clearInterval(ringInt);
+clearTimeout(ringConnectTimer);
+ringInt = null;
+ringConnectTimer = null;
+const tile = document.querySelector('#callStage .video-tile');
+if (tile) tile.classList.remove('is-ringing');
+}
+async function startCall(withVideo, roomName, isDirectCall) {
+if (!roomName) return;
+clearTimeout(micReleaseTimeout);
+stopRingingUI();
+try {
+closeMobilePanels();
+if (localStream) localStream.getTracks().forEach(t => t.stop());
+localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: !!withVideo });
+camOn = !!withVideo; micMuted = false; callStartTime = null;
+$('callStage').classList.remove('hidden');
+$('callMiniStatus').classList.remove('hidden');
+setAvaStyle($('localCallAva'), currentUser ? currentUser.avatarImg : null);
+$('toggleMicBtn').classList.add('active'); $('micMutedTag').classList.add('hidden');
+$('toggleCamBtn').classList.toggle('active', !!withVideo);
+if (withVideo) {
+$('localVideo').srcObject = localStream;
+$('localVideo').classList.remove('hidden');
+$('localCallAva').classList.add('hidden');
+} else {
+$('localVideo').classList.add('hidden');
+$('localCallAva').classList.remove('hidden');
+}
+if (isDirectCall) {
+$('callRoomLabel').textContent = 'Звонок: ' + roomName + ' • Вызов...';
+$('localCallName').innerHTML = escapeHTML(currentUser ? currentUser.nick : 'Вы') + '• Вызов ' + escapeHTML(roomName) + '...';
+const tile = document.querySelector('#callStage .video-tile');
+if (tile) tile.classList.add('is-ringing');
+playSound('ring');
+ringInt = setInterval(() => playSound('ring'), 2400);
+ringConnectTimer = setTimeout(() => {
+stopRingingUI();
+callStartTime = Date.now();
+playSound('call');
+$('callRoomLabel').textContent = 'Звонок: ' + roomName + ' • В эфире';
+$('localCallName').textContent = currentUser ? currentUser.nick : 'Вы';
+}, 4800);
+} else {
+callStartTime = Date.now();
+playSound('call');
+$('callRoomLabel').textContent = roomName + ' • В эфире';
+$('localCallName').textContent = currentUser ? currentUser.nick : 'Вы';
+}
+} catch {
+playSound('error');
+alert('Нет доступа к микрофону или камере.');
+}
+}
+function endCall() {
+stopRingingUI();
+if (localStream) { releaseMicLater(); localStream = null; }
+if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
+if (callStartTime && currentUser && activeChat) {
+const mins = Math.max(1, Math.round((Date.now() - callStartTime) / 60000));
+pushMessage('system', 'завершил звонок продолжительностью ' + mins + ' мин.');
+}
+callStartTime = null;
+camOn = false;
+$('callStage').classList.add('hidden');
+$('callMiniStatus').classList.add('hidden');
+$('toggleScreenBtn').classList.remove('active');
+}
+function startActiveChatCall(withVideo) {
+if (!activeChat) return;
+const ch = channels.find(c => c.id === activeChat);
+if (!ch) return;
+if (ch.id.startsWith('лс-')) {
+const otherId = Object.keys(ch.roles || {}).find(id => id !== activeUserId);
+const friend = accounts.find(a => a.id === otherId);
+startCall(withVideo, friend ? friend.nick : 'Собеседник', true);
+} else {
+startCall(withVideo, '#' + ch.id, false);
+}
+}
+$('startAudioCallBtn').onclick = () => startActiveChatCall(false);
+$('startVideoCallBtn').onclick = () => startActiveChatCall(true);
+$('hangupCallBtn').onclick = endCall;
+$('miniHangupBtn').onclick = endCall;
+$('inviteCallBtn').onclick = () => {
+if (!activeChat) return;
+const name = prompt('Кого пригласить в звонок? Введите ник:');
+if (name) pushMessage('system', 'пригласил пользователя ' + name + ' в звонок.');
+};
+$('toggleMicBtn').onclick = () => {
+if (!localStream) return;
+micMuted = !micMuted; localStream.getAudioTracks().forEach(t => (t.enabled = !micMuted));
+$('toggleMicBtn').classList.toggle('active', !micMuted); $('micMutedTag').classList.toggle('hidden', !micMuted);
+};
+$('toggleCamBtn').onclick = async () => {
+if (!localStream) return;
+if (camOn) {
+localStream.getVideoTracks().forEach(t => t.stop()); camOn = false;
+$('toggleCamBtn').classList.remove('active'); $('localVideo').classList.add('hidden'); $('localCallAva').classList.remove('hidden');
+} else {
+try {
+const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+localStream.addTrack(vStream.getVideoTracks());
+$('localVideo').srcObject = localStream;
+$('localVideo').classList.remove('hidden'); $('localCallAva').classList.add('hidden');
+camOn = true; $('toggleCamBtn').classList.add('active');
+} catch { playSound('error'); alert('Камера недоступна.'); }
+}
+};
+$('toggleScreenBtn').onclick = async () => {
+if (screenStream) {
+screenStream.getTracks().forEach(t => t.stop()); screenStream = null;
+$('toggleScreenBtn').classList.remove('active');
+$('localVideo').srcObject = camOn ? localStream : null;
+$('localVideo').classList.toggle('hidden', !camOn); $('localCallAva').classList.toggle('hidden', camOn);
+return;
+}
+try {
+screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+$('localVideo').srcObject = screenStream; $('localVideo').classList.remove('hidden'); $('localCallAva').classList.add('hidden');
+$('toggleScreenBtn').classList.add('active');
+screenStream.getVideoTracks().onended = () => {
+screenStream = null; $('toggleScreenBtn').classList.remove('active');
+$('localVideo').classList.toggle('hidden', !camOn); $('localCallAva').classList.toggle('hidden', camOn);
+};
+} catch {}
+};
+let editingChId = null, ctxTargetId = null, tempChImg = null, selectedChType = 'text', selectedChKind = 'group';
+async function saveChannelDB(ch) {
+await sb.from('looma_channels').upsert({
+id: ch.id, type: ch.type, kind: ch.kind, roles: ch.roles || {},
+icon_img: ch.iconImg || null, description: ch.desc || '',
+pinned: ch.pinned || null, pinned_idx: ch.pinnedIdx ?? null
+});
+}
+function canWrite(channel) {
+if (!currentUser || !channel) return false;
+if (channel.kind === 'group') return true;
+if (channel.kind === 'channel') {
+const role = channel.roles && channel.roles[currentUser.id];
+return role === 'owner' || role === 'admin' || currentUser.isAdmin;
+}
+return true;
+}
+function canManage(channel) {
+if (!currentUser || !channel) return false;
+if (currentUser.isAdmin) return true;
+const role = channel.roles && channel.roles[currentUser.id];
+return role === 'owner' || role === 'admin';
+}
+function setChPreviewStyle(el, img, isVoice) {
+if (!el) return;
+if (img) { el.style.backgroundImage = 'url(' + img + ')'; el.textContent = ''; }
+else { el.style.backgroundImage = 'none'; el.textContent = isVoice ? '🔊' : '#'; }
+}
+// --- КОНЕЦ ЧАСТИ 2 ---
+// --- НАЧАЛО ЧАСТИ 3 ---
   function switchSideTab(tab) {
     const isFriends = tab === 'friends';
     $('sideTabChats').classList.toggle('active', !isFriends);
@@ -981,7 +965,7 @@ activeChat = myTextChs ? myTextChs.id : null;
             '<div class="mem-stat">' + escapeHTML(u.status || 'В сети') + '</div>' +
           '</div>' +
         '</div>' +
-        '<button type="button" class="btn-sec" style="padding:4px 9px;font-size:12px;">ЛС</button>';
+        '<button type="button" class="btn-sec" style="padding:5px 10px;font-size:12px;">ЛС</button>';
 
       item.querySelector('button').onclick = async e => {
         e.stopPropagation();
@@ -1002,13 +986,18 @@ activeChat = myTextChs ? myTextChs.id : null;
     $('chatHeader').classList.toggle('hidden', !hasActive);
     $('messages').classList.toggle('hidden', !hasActive);
     $('inputBox').classList.toggle('hidden', !hasActive);
+
     if (!hasActive) {
       $('pinnedBar').classList.add('hidden');
       $('membersPanel').classList.add('hidden');
+      $('membersToggleBtn').classList.remove('active');
       const fCount = (currentUser && currentUser.friends ? currentUser.friends.length : 0);
       $('emptyHeroSub').textContent = myChs.length === 0 && fCount === 0
         ? 'У вас пока не создано ни одного чата и не добавлен ни один друг. Начните общение прямо сейчас!'
         : 'Выберите чат или друга слева, чтобы начать переписку!';
+    } else if (window.innerWidth > 768) {
+      $('membersPanel').classList.remove('hidden');
+      $('membersToggleBtn').classList.add('active');
     }
   }
 
@@ -1032,15 +1021,14 @@ activeChat = myTextChs ? myTextChs.id : null;
       const el = document.createElement('div');
       const isVoice = ch.type === 'voice';
       el.className = 'ch-item' + (!isVoice && ch.id === activeChat ? ' active' : '');
-      const avaStyle = ch.iconImg ? 'background-image:url(' + ch.iconImg + ')' : '';
-      const avaText = ch.iconImg ? '' : (isVoice ? '🔊' : '#');
-      const lockIcon = ch.kind === 'channel' && !canWrite(ch) ? ' 🔒' : '';
+const avaStyle = ch.iconImg ? 'background-image:url(' + ch.iconImg + ')' : '';
+const avaText = ch.iconImg ? '' : (isVoice ? '🔊' : '#');
+const lockIcon = ch.kind === 'channel' && !canWrite(ch) ? ' 🔒' : '';
 el.innerHTML = '' + avaText + '' + escapeHTML(ch.id) + lockIcon + '';
 el.onclick = () => {
 if (isVoice) {
 $('appRoot').classList.remove('mob-list-view');
-updateEmptyHeroState();
-return startCall(false, ch.id);
+return startCall(false, '#' + ch.id, false);
 }
 activeChat = ch.id;
 $('appRoot').classList.remove('mob-list-view');
@@ -1065,7 +1053,7 @@ const writeAllowed = canWrite(cur);
 $('messageForm').classList.toggle('hidden', !writeAllowed);
 $('noWriteAlert').classList.toggle('hidden', writeAllowed);
 if (writeAllowed) $('messageInput').placeholder = 'Написать в #' + cur.id + '...';
-$('openManageBtn').style.display = canManage(cur) ? 'inline-flex' : 'none';
+$('openManageBtn').style.display = canManage(cur) && !cur.id.startsWith('лс-') ? 'inline-flex' : 'none';
 updatePinnedBar();
 }
 let managingChatId = null;
@@ -1084,17 +1072,20 @@ function renderManageList() {
 const ch = channels.find(c => c.id === managingChatId);
 if (!ch) return;
 const query = $('addMemberSearchInput').value.trim().toLowerCase();
+const qPhone = normPhone(query);
 const list = $('manageMembersList'); list.innerHTML = '';
 let usersToShow = [];
 let hint = '';
 if (query === '') {
 const friendIds = currentUser.friends || [];
-usersToShow = accounts.filter(u => friendIds.includes(u.id) && (!ch.roles || !ch.roles[u.id]));
-hint = usersToShow.length === 0 ? 'У вас нет друзей, которых можно добавить (или они уже в чате). Введите ник для поиска.' : 'Ваши друзья:';
+usersToShow = accounts.filter(u => friendIds.includes(u.id));
+hint = usersToShow.length === 0 ? 'Список друзей пока пуст. Введите точный ник или телефон для поиска:' : 'Ваши друзья:';
 } else {
 usersToShow = accounts.filter(u =>
+u.id !== activeUserId && (
 u.nick.toLowerCase() === query ||
-(u.phone && normPhone(u.phone) === normPhone(query))
+(u.phone && qPhone && normPhone(u.phone) === qPhone)
+)
 );
 hint = usersToShow.length === 0 ? 'Никого не найдено. Введите точный ник или телефон.' : 'Результаты поиска:';
 }
@@ -1102,17 +1093,19 @@ if (hint) list.innerHTML = '' + hint + '';
 usersToShow.forEach(u => {
 const isMember = ch.roles && ch.roles[u.id];
 const row = document.createElement('div');
-row.className = 'mem-item mem-row-custom';
+row.className = 'manage-user-row';
 const actions = !isMember
 ? 'Добавить'
-: 'Уже в чате';
+: 'В чате ✓';
 row.innerHTML =
+'' +
 '' + (u.avatarImg ? '' : USER_SVG) + '' +
 '' +
 '' + escapeHTML(u.nick) + '' +
-'' + escapeHTML(u.phone || 'нет телефона') + '' +
+'' + escapeHTML(u.status || 'В сети') + '' +
 '' +
-'' + actions + '';
+'' +
+actions;
 const addBtn = row.querySelector('[data-add]');
 if (addBtn) addBtn.onclick = async () => {
 ch.roles = ch.roles || {};
@@ -1192,8 +1185,8 @@ item.onclick = () => { closeMobilePanels(); openUserProfile(u); };
 list.appendChild(item);
 });
 }
-// --- КОНЕЦ ЧАСТИ 6 ---
-// --- НАЧАЛО ЧАСТИ 7 ---
+// --- КОНЕЦ ЧАСТИ 3 ---
+// --- НАЧАЛО ЧАСТИ 4 ---
   function renderMessages() {
     const box = $('messages'); box.innerHTML = '';
     if (!activeChat) return;
@@ -1335,8 +1328,7 @@ list.appendChild(item);
       if (type !== 'system') playSound('send');
     }
   }
-// --- КОНЕЦ ЧАСТИ 7 ---
-// --- НАЧАЛО ЧАСТИ 8 ---
+
   document.querySelectorAll('.ch-kind').forEach(b => b.onclick = () => {
     document.querySelectorAll('.ch-kind').forEach(x => x.classList.remove('active'));
     b.classList.add('active'); selectedChKind = b.dataset.kind;
@@ -1380,151 +1372,142 @@ list.appendChild(item);
           if (activeChat === editingChId) activeChat = newId;
           ch.id = newId;
         }
-        ch.iconImg = tempChImg; ch.desc = $('chDescInput').value.trim(); ch.type = selectedChType; ch.kind = selectedChKind;
-        await saveChannelDB(ch);
-      }
-    } else {
-      if (channels.some(c => c.id === newId)) { playSound('error'); return alert('Чат с таким названием уже занят!'); }
-      const newCh = { id: newId, type: selectedChType, kind: selectedChKind, roles: { [activeUserId]: 'owner' }, iconImg: tempChImg, desc: $('chDescInput').value.trim(), pinned: null, pinnedIdx: null };
-      channels.push(newCh);
-      await saveChannelDB(newCh);
-      if (selectedChType !== 'voice') {
-        chatsData[newId] = [];
-        activeChat = newId;
-        $('appRoot').classList.remove('mob-list-view');
-      }
-    }
-    switchSideTab('chats');
-    renderChannels(); renderMessages(); $('channelModal').classList.add('hidden');
-  };
-
-  $('ctxEditCh').onclick = () => {
-    const ch = channels.find(c => c.id === ctxTargetId);
-    if (!ch) return;
-    editingChId = ch.id; tempChImg = ch.iconImg || null;
-    selectedChKind = ch.kind || 'group'; selectedChType = ch.type || 'text';
-    $('chModalTitle').textContent = 'Изменить чат'; $('saveChBtn').textContent = 'Сохранить';
-    $('chNameInput').value = ch.id; $('chDescInput').value = ch.desc || '';
-    document.querySelectorAll('.ch-kind').forEach(b => b.classList.toggle('active', b.dataset.kind === selectedChKind));
-    document.querySelectorAll('.ch-type').forEach(b => b.classList.toggle('active', b.dataset.type === selectedChType));
-    setChPreviewStyle($('chImgPreview'), tempChImg, ch.type === 'voice');
-    $('channelModal').classList.remove('hidden');
-  };
-
-  $('ctxClearCh').onclick = async () => {
-    if (ctxTargetId && confirm('Очистить историю сообщений на сервере?')) {
-      await sb.from('looma_messages').delete().eq('chat_id', ctxTargetId);
-      chatsData[ctxTargetId] = [];
-      if (activeChat === ctxTargetId) renderMessages();
-    }
-  };
-
-  $('ctxDeleteCh').onclick = async () => {
-    if (!ctxTargetId) return;
-    if (!confirm('Удалить этот чат навсегда?')) return;
-    await sb.from('looma_channels').delete().eq('id', ctxTargetId);
-    channels = channels.filter(c => c.id !== ctxTargetId); delete chatsData[ctxTargetId];
-    if (activeChat === ctxTargetId) {
-      const nextCh = getMyChannels().find(c => c.type !== 'voice');
-      activeChat = nextCh ? nextCh.id : null;
-      if (!activeChat) $('appRoot').classList.add('mob-list-view');
-    }
-    renderChannels(); renderMessages(); $('chContextMenu').classList.add('hidden');
-  };
-
-  let replyTo = null, ctxMsgIndex = null;
-  function updatePinnedBar() {
-    const cur = channels.find(c => c.id === activeChat);
-    if (cur && cur.pinned) { $('pinnedText').textContent = cur.pinned; $('pinnedBar').classList.remove('hidden'); }
-    else $('pinnedBar').classList.add('hidden');
-  }
-  $('pinnedBar').onclick = () => {
-    const cur = channels.find(c => c.id === activeChat);
-    if (!cur || cur.pinnedIdx == null) return;
-    const target = $('messages').querySelector('[data-msg-idx="' + cur.pinnedIdx + '"]');
-    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.style.background = 'rgba(124, 77, 255, 0.25)'; setTimeout(() => target.style.background = '', 1200); }
-  };
-  $('unpinBtn').onclick = async e => { e.stopPropagation(); const cur = channels.find(c => c.id === activeChat); if (cur) { cur.pinned = null; cur.pinnedIdx = null; await saveChannelDB(cur); updatePinnedBar(); } };
-
-  async function toggleReaction(m, emoji) {
-    if (!activeUserId || !m) return; m.reactions = m.reactions || {};
-    if (!Array.isArray(m.reactions[emoji])) m.reactions[emoji] = [];
-    const idx = m.reactions[emoji].indexOf(activeUserId);
-    if (idx === -1) m.reactions[emoji].push(activeUserId); else { m.reactions[emoji].splice(idx, 1); if (!m.reactions[emoji].length) delete m.reactions[emoji]; }
-    playSound('pop'); renderMessages();
-    if (m.dbId) await sb.from('looma_messages').update({ reactions: m.reactions }).eq('id', m.dbId);
-  }
-
-  function openMsgMenu(x, y, idx) {
-    const m = (chatsData[activeChat] || [])[idx];
-    if (!m || m.type === 'system') return;
-    ctxMsgIndex = idx;
-    $('ctxMsgDel').classList.toggle('hidden', !(m.userId === activeUserId || (currentUser && currentUser.isAdmin)));
-    $('msgContextMenu').style.left = Math.min(x, window.innerWidth - 210) + 'px';
-    $('msgContextMenu').style.top = Math.min(y, window.innerHeight - 190) + 'px';
-    $('msgContextMenu').classList.remove('hidden');
-  }
-
-  document.querySelectorAll('#msgContextMenu .ctx-reacts button').forEach(btn => {
-    btn.onclick = () => { const m = (chatsData[activeChat] || [])[ctxMsgIndex]; if (m) toggleReaction(m, btn.dataset.em); };
-  });
-  $('ctxMsgReply').onclick = () => {
-    const m = (chatsData[activeChat] || [])[ctxMsgIndex];
-    if (!m) return;
-    replyTo = m.author + ': ' + (m.type === 'text' ? m.content : '[' + m.type + ']');
-    $('replyAuthor').textContent = m.author; $('replyPreview').textContent = m.type === 'text' ? m.content : m.type;
-    $('replyBar').classList.remove('hidden'); $('messageInput').focus();
-  };
-  $('ctxMsgPin').onclick = async () => {
-    const m = (chatsData[activeChat] || [])[ctxMsgIndex];
-    const cur = channels.find(c => c.id === activeChat);
-    if (m && cur) { cur.pinned = m.author + ': ' + (m.type === 'text' ? m.content : '[' + m.type + ']'); cur.pinnedIdx = ctxMsgIndex; await saveChannelDB(cur); updatePinnedBar(); }
-  };
-  $('ctxMsgDel').onclick = async () => {
-    const msgs = chatsData[activeChat] || [];
-    const target = msgs[ctxMsgIndex];
-    if (target) {
-      if (target.dbId) await sb.from('looma_messages').delete().eq('id', target.dbId);
-      msgs.splice(ctxMsgIndex, 1); renderMessages();
-    }
-  };
-
-  $('lightboxModal').onclick = () => $('lightboxModal').classList.add('hidden');
-  $('cancelReplyBtn').onclick = () => { replyTo = null; $('replyBar').classList.add('hidden'); };
-  document.addEventListener('click', () => { $('chContextMenu').classList.add('hidden'); $('msgContextMenu').classList.add('hidden'); });
-
-  const STICKER_CATS = {
-    games: ['🎮', '👾', '🏆', '⚔️', '🛡️', '🎯', '🎲', '🕹️', '🐉', '👑', '💎', '🚀'],
-    faces: ['😎', '😂', '🥳', '🤯', '🥶', '😈', '👻', '🤖', '💀', '👽', '🤡', '🫡'],
-    symbols: ['🔥', '⚡', '💥', '💯', '❤️', '💔', '✨', '🌈', '🎉', '⚠️', '✅', '❌']
-  };
-  function renderStickers(cat) {
-    if (!cat) cat = 'games';
-    $('stickerGrid').innerHTML = '';
-    (STICKER_CATS[cat] || STICKER_CATS.games).forEach(em => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'sticker-item'; b.textContent = em;
-      b.onclick = () => { pushMessage('sticker', em); $('stickerPicker').classList.add('hidden'); };
-      $('stickerGrid').appendChild(b);
-    });
-  }
-  renderStickers('games');
-  document.querySelectorAll('.st-tab').forEach(tab => {
-    tab.onclick = e => { e.stopPropagation(); document.querySelectorAll('.st-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); renderStickers(tab.dataset.cat); };
-  });
-  $('stickerBtn').onclick = e => { e.stopPropagation(); $('stickerPicker').classList.toggle('hidden'); };
-  document.addEventListener('click', e => { if (!$('stickerPicker').contains(e.target) && e.target !== $('stickerBtn')) $('stickerPicker').classList.add('hidden'); });
-
-  function handleFileUpload(f) {
-    if (!f) return;
-    if (f.type.startsWith('image/')) compressImage(f, 800, url => pushMessage('image', url));
-    else if (f.type.startsWith('video/')) {
-      const reader = new FileReader();
-      reader.onload = ev => pushMessage('video', ev.target.result);
-      reader.readAsDataURL(f);
-    }
-  }
-  $('attachBtn').onclick = () => $('mediaInput').click();$('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
+ch.iconImg = tempChImg; ch.desc = $('chDescInput').value.trim(); ch.type = selectedChType; ch.kind = selectedChKind;
+await saveChannelDB(ch);
+}
+} else {
+if (channels.some(c => c.id === newId)) { playSound('error'); return alert('Чат с таким названием уже занят!'); }
+const newCh = { id: newId, type: selectedChType, kind: selectedChKind, roles: { [activeUserId]: 'owner' }, iconImg: tempChImg, desc: $('chDescInput').value.trim(), pinned: null, pinnedIdx: null };
+channels.push(newCh);
+await saveChannelDB(newCh);
+if (selectedChType !== 'voice') {
+chatsData[newId] = [];
+activeChat = newId;
+$('appRoot').classList.remove('mob-list-view');
+}
+}
+switchSideTab('chats');
+renderChannels(); renderMessages(); $('channelModal').classList.add('hidden');
+};
+$('ctxEditCh').onclick = () => {
+const ch = channels.find(c => c.id === ctxTargetId);
+if (!ch) return;
+editingChId = ch.id; tempChImg = ch.iconImg || null;
+selectedChKind = ch.kind || 'group'; selectedChType = ch.type || 'text';
+$('chModalTitle').textContent = 'Изменить чат'; $('saveChBtn').textContent = 'Сохранить';
+$('chNameInput').value = ch.id; $('chDescInput').value = ch.desc || '';
+document.querySelectorAll('.ch-kind').forEach(b => b.classList.toggle('active', b.dataset.kind === selectedChKind));
+document.querySelectorAll('.ch-type').forEach(b => b.classList.toggle('active', b.dataset.type === selectedChType));
+setChPreviewStyle($('chImgPreview'), tempChImg, ch.type === 'voice');
+$('channelModal').classList.remove('hidden');
+};
+$('ctxClearCh').onclick = async () => {
+if (ctxTargetId && confirm('Очистить историю сообщений на сервере?')) {
+await sb.from('looma_messages').delete().eq('chat_id', ctxTargetId);
+chatsData[ctxTargetId] = [];
+if (activeChat === ctxTargetId) renderMessages();
+}
+};
+$('ctxDeleteCh').onclick = async () => {
+if (!ctxTargetId) return;
+if (!confirm('Удалить этот чат навсегда?')) return;
+await sb.from('looma_channels').delete().eq('id', ctxTargetId);
+channels = channels.filter(c => c.id !== ctxTargetId); delete chatsData[ctxTargetId];
+if (activeChat === ctxTargetId) {
+const nextCh = getMyChannels().find(c => c.type !== 'voice');
+activeChat = nextCh ? nextCh.id : null;
+if (!activeChat) $('appRoot').classList.add('mob-list-view');
+}
+renderChannels(); renderMessages(); $('chContextMenu').classList.add('hidden');
+};
+let replyTo = null, ctxMsgIndex = null;
+function updatePinnedBar() {
+const cur = channels.find(c => c.id === activeChat);
+if (cur && cur.pinned) { $('pinnedText').textContent = cur.pinned; $('pinnedBar').classList.remove('hidden'); }
+else $('pinnedBar').classList.add('hidden');
+}
+$('pinnedBar').onclick = () => {
+const cur = channels.find(c => c.id === activeChat);
+if (!cur || cur.pinnedIdx == null) return;
+const target = $('messages').querySelector('[data-msg-idx="' + cur.pinnedIdx + '"]');
+if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.style.background = 'rgba(124, 77, 255, 0.25)'; setTimeout(() => target.style.background = '', 1200); }
+};
+$('unpinBtn').onclick = async e => { e.stopPropagation(); const cur = channels.find(c => c.id === activeChat); if (cur) { cur.pinned = null; cur.pinnedIdx = null; await saveChannelDB(cur); updatePinnedBar(); } };
+async function toggleReaction(m, emoji) {
+if (!activeUserId || !m) return; m.reactions = m.reactions || {};
+if (!Array.isArray(m.reactions[emoji])) m.reactions[emoji] = [];
+const idx = m.reactions[emoji].indexOf(activeUserId);
+if (idx === -1) m.reactions[emoji].push(activeUserId); else { m.reactions[emoji].splice(idx, 1); if (!m.reactions[emoji].length) delete m.reactions[emoji]; }
+playSound('pop'); renderMessages();
+if (m.dbId) await sb.from('looma_messages').update({ reactions: m.reactions }).eq('id', m.dbId);
+}
+function openMsgMenu(x, y, idx) {
+const m = (chatsData[activeChat] || [])[idx];
+if (!m || m.type === 'system') return;
+ctxMsgIndex = idx;
+$('ctxMsgDel').classList.toggle('hidden', !(m.userId === activeUserId || (currentUser && currentUser.isAdmin)));
+$('msgContextMenu').style.left = Math.min(x, window.innerWidth - 210) + 'px';
+$('msgContextMenu').style.top = Math.min(y, window.innerHeight - 190) + 'px';
+$('msgContextMenu').classList.remove('hidden');
+}
+document.querySelectorAll('#msgContextMenu .ctx-reacts button').forEach(btn => {
+btn.onclick = () => { const m = (chatsData[activeChat] || [])[ctxMsgIndex]; if (m) toggleReaction(m, btn.dataset.em); };
+});
+$('ctxMsgReply').onclick = () => {
+const m = (chatsData[activeChat] || [])[ctxMsgIndex];
+if (!m) return;
+replyTo = m.author + ': ' + (m.type === 'text' ? m.content : '[' + m.type + ']');
+$('replyAuthor').textContent = m.author; $('replyPreview').textContent = m.type === 'text' ? m.content : m.type;
+$('replyBar').classList.remove('hidden'); $('messageInput').focus();
+};
+$('ctxMsgPin').onclick = async () => {
+const m = (chatsData[activeChat] || [])[ctxMsgIndex];
+const cur = channels.find(c => c.id === activeChat);
+if (m && cur) { cur.pinned = m.author + ': ' + (m.type === 'text' ? m.content : '[' + m.type + ']'); cur.pinnedIdx = ctxMsgIndex; await saveChannelDB(cur); updatePinnedBar(); }
+};
+$('ctxMsgDel').onclick = async () => {
+const msgs = chatsData[activeChat] || [];
+const target = msgs[ctxMsgIndex];
+if (target) {
+if (target.dbId) await sb.from('looma_messages').delete().eq('id', target.dbId);
+msgs.splice(ctxMsgIndex, 1); renderMessages();
+}
+};
+$('lightboxModal').onclick = () => $('lightboxModal').classList.add('hidden');
+$('cancelReplyBtn').onclick = () => { replyTo = null; $('replyBar').classList.add('hidden'); };
+document.addEventListener('click', () => { $('chContextMenu').classList.add('hidden'); $('msgContextMenu').classList.add('hidden'); });
+const STICKER_CATS = {
+games: ['🎮', '👾', '🏆', '⚔️', '🛡️', '🎯', '🎲', '🕹️', '🐉', '👑', '💎', '🚀'],
+faces: ['😎', '😂', '🥳', '🤯', '🥶', '😈', '👻', '🤖', '💀', '👽', '🤡', '🫡'],
+symbols: ['🔥', '⚡', '💥', '💯', '❤️', '💔', '✨', '🌈', '🎉', '⚠️', '✅', '❌']
+};
+function renderStickers(cat) {
+if (!cat) cat = 'games';
+$('stickerGrid').innerHTML = '';
+(STICKER_CATS[cat] || STICKER_CATS.games).forEach(em => {
+const b = document.createElement('button');
+b.type = 'button'; b.className = 'sticker-item'; b.textContent = em;
+b.onclick = () => { pushMessage('sticker', em); $('stickerPicker').classList.add('hidden'); };
+$('stickerGrid').appendChild(b);
+});
+}
+renderStickers('games');
+document.querySelectorAll('.st-tab').forEach(tab => {
+tab.onclick = e => { e.stopPropagation(); document.querySelectorAll('.st-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); renderStickers(tab.dataset.cat); };
+});
+$('stickerBtn').onclick = e => { e.stopPropagation(); $('stickerPicker').classList.toggle('hidden'); };
+document.addEventListener('click', e => { if (!$('stickerPicker').contains(e.target) && e.target !== $('stickerBtn')) $('stickerPicker').classList.add('hidden'); });
+function handleFileUpload(f) {
+if (!f) return;
+if (f.type.startsWith('image/')) compressImage(f, 800, url => pushMessage('image', url));
+else if (f.type.startsWith('video/')) {
+const reader = new FileReader();
+reader.onload = ev => pushMessage('video', ev.target.result);
+reader.readAsDataURL(f);
+}
+}
+$('attachBtn').onclick = () => $('mediaInput').click();
+$('mediaInput').onchange = e => { handleFileUpload(e.target.files.item(0)); e.target.value = ''; };
 document.addEventListener('paste', e => { const imgItem = (e.clipboardData ? Array.from(e.clipboardData.items) : []).find(i => i.type.startsWith('image/')); if (imgItem) handleFileUpload(imgItem.getAsFile()); });
 $('memberSearchInput').oninput = renderMembers;
 $('dmUserBtn').onclick = async () => {
@@ -1651,4 +1634,4 @@ else { updateMyUI(); renderChannels(); renderFriendsTab(); renderMessages(); ren
 }
 });
 });
-// --- КОНЕЦ ЧАСТИ 8 ---
+// --- КОНЕЦ ЧАСТИ 4 ---
