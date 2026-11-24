@@ -1,11 +1,44 @@
 // --- НАЧАЛО ЧАСТИ 1 ---
 document.addEventListener('DOMContentLoaded', async () => {
-  const SUPABASE_URL = 'https://supabase.co';
+  const SUPABASE_URL = 'https://ynvaqziucftoqfgvzjmx.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_XPa7Dr__c_5QhmKd7zlu_w_qoJq470P';
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   const $ = id => document.getElementById(id);
-  const normPhone = p => (p || '').replace(/[^\d+]/g, '');
+
+  function normPhone(p) {
+    let digits = (p || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.length === 11 && digits.startsWith('8')) digits = '7' + digits.slice(1);
+    return '+' + digits;
+  }
+
+  function saveSession(user) {
+    if (!user) return;
+    try {
+      localStorage.setItem('looma_session_v2', user.id);
+      localStorage.setItem('looma_cached_user', JSON.stringify(user));
+    } catch (e) {}
+    document.cookie = 'looma_uid=' + encodeURIComponent(user.id) + '; path=/; max-age=31536000; SameSite=Lax';
+  }
+
+  function getSavedSessionId() {
+    let id = null;
+    try { id = localStorage.getItem('looma_session_v2'); } catch (e) {}
+    if (!id) {
+      const m = document.cookie.match(/(?:^|;\s*)looma_uid=([^;]+)/);
+      if (m) id = decodeURIComponent(m);
+    }
+    return id || null;
+  }
+
+  function clearSession() {
+    try {
+      localStorage.removeItem('looma_session_v2');
+      localStorage.removeItem('looma_cached_user');
+    } catch (e) {}
+    document.cookie = 'looma_uid=; path=/; max-age=0';
+  }
 
   const USER_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
   const CALL_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>';
@@ -99,6 +132,17 @@ document.addEventListener('DOMContentLoaded', async () => {
           gain.gain.setValueAtTime(0.08, now + i * 0.14); gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.14 + 0.15);
           osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now + i * 0.14); osc.stop(now + i * 0.14 + 0.15);
         });
+      } else if (type === 'ring') {
+        [0, 0.42].forEach(delay => {
+          const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+          osc.type = 'sine'; osc.frequency.setValueAtTime(425, now + delay);
+          gain.gain.setValueAtTime(0.001, now + delay);
+          gain.gain.linearRampToValueAtTime(0.09, now + delay + 0.03);
+          gain.gain.setValueAtTime(0.09, now + delay + 0.28);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.34);
+          osc.connect(gain); gain.connect(audioCtx.destination);
+          osc.start(now + delay); osc.stop(now + delay + 0.35);
+        });
       } else if (type === 'pop') {
         const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
         osc.type = 'sine'; osc.frequency.setValueAtTime(500, now); osc.frequency.exponentialRampToValueAtTime(950, now + 0.06);
@@ -137,48 +181,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     nick_color: u.nickColor, theme_accent: u.themeAccent, bg_theme: u.bgTheme, sound_pack: u.soundPack,
     msg_size: u.msgSize, ava_radius: u.avaRadius, fx_mode: u.fxMode, status: u.status, bio: u.bio,
     avatar_img: u.avatarImg, banner: u.banner, friends: u.friends || []
-  });
-
-  const mapChFromDB = c => ({
-    id: c.id, type: c.type || 'text', kind: c.kind || 'group', roles: c.roles || {},
-    iconImg: c.icon_img || null, desc: c.description || '', pinned: c.pinned || null, pinnedIdx: c.pinned_idx ?? null
-  });
-
-  const mapMsgFromDB = m => ({
-    dbId: m.id, chatId: m.chat_id, userId: m.user_id, isAdmin: !!m.is_admin, author: m.author,
-    nickColor: m.nick_color || '#ffffff', avatarImg: m.avatar_img || null, type: m.type || 'text',
-    content: m.content, time: m.time_str || '', reply: m.reply || null, reactions: m.reactions || {}
-  });
-
-  async function saveUserDB(u) { await sb.from('looma_users').upsert(mapUserToDB(u)); }
-
-  async function loadAllFromServer() {
-    const [uRes, cRes, mRes] = await Promise.all([
-      sb.from('looma_users').select('*'),
-      sb.from('looma_channels').select('*').order('created_at', { ascending: true }),
-      sb.from('looma_messages').select('*').order('id', { ascending: true })
-    ]);
-    if (uRes.data) accounts = uRes.data.map(mapUserFromDB);
-    if (cRes.data) channels = cRes.data.map(mapChFromDB);
-    chatsData = {};
-    channels.forEach(c => { chatsData[c.id] = []; });
-    if (mRes.data) {
-      mRes.data.forEach(raw => {
-        const msg = mapMsgFromDB(raw);
-        if (!chatsData[msg.chatId]) chatsData[msg.chatId] = [];
-        chatsData[msg.chatId].push(msg);
-      });
-    }
-    if (!channels.some(c => c.id === activeChat && c.type !== 'voice')) {
-      activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
-    }
-  }
-
-  await loadAllFromServer();
+  });const mapChFromDB = c => ({
+id: c.id, type: c.type || 'text', kind: c.kind || 'group', roles: c.roles || {},
+iconImg: c.icon_img || null, desc: c.description || '', pinned: c.pinned || null, pinnedIdx: c.pinned_idx ?? null
+});
+const mapMsgFromDB = m => ({
+dbId: m.id, chatId: m.chat_id, userId: m.user_id, isAdmin: !!m.is_admin, author: m.author,
+nickColor: m.nick_color || '#ffffff', avatarImg: m.avatar_img || null, type: m.type || 'text',
+content: m.content, time: m.time_str || '', reply: m.reply || null, reactions: m.reactions || {}
+});
+async function saveUserDB(u) {
+const res = await sb.from('looma_users').upsert(mapUserToDB(u));
+if (!res.error) saveSession(u);
+return res;
+}
+async function loadAllFromServer() {
+const [uRes, cRes, mRes] = await Promise.all([
+sb.from('looma_users').select(''),
+sb.from('looma_channels').select('').order('created_at', { ascending: true }),
+sb.from('looma_messages').select('*').order('id', { ascending: true })
+]);
+if (uRes.data) accounts = uRes.data.map(mapUserFromDB);
+if (cRes.data) channels = cRes.data.map(mapChFromDB);
+chatsData = {};
+channels.forEach(c => { chatsData[c.id] = []; });
+if (mRes.data) {
+mRes.data.forEach(raw => {
+const msg = mapMsgFromDB(raw);
+if (!chatsData[msg.chatId]) chatsData[msg.chatId] = [];
+chatsData[msg.chatId].push(msg);
+});
+}
+if (!channels.some(c => c.id === activeChat && c.type !== 'voice')) {
+activeChat = channels.find(c => c.type !== 'voice')?.id || 'общий-чат';
+}
+}
+await loadAllFromServer();
 // --- КОНЕЦ ЧАСТИ 1 ---
 // --- НАЧАЛО ЧАСТИ 2 ---
-  let activeUserId = localStorage.getItem('looma_session_v2') || null;
+  let activeUserId = getSavedSessionId();
   currentUser = accounts.find(a => a.id === activeUserId) || null;
+
+  // Если сервер на мгновение задумался при старте, но в кэше есть сохранённый профиль — восстанавливаем его
+  if (!currentUser && activeUserId) {
+    try {
+      const cached = JSON.parse(localStorage.getItem('looma_cached_user') || 'null');
+      if (cached && cached.id === activeUserId) {
+        currentUser = cached;
+        accounts.push(cached);
+        saveUserDB(cached);
+      }
+    } catch (e) {}
+  }
+
   let isRegister = false;
   let loginMethod = 'email';
 
@@ -239,10 +294,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.sound-opt').forEach(b => b.classList.toggle('active', b.dataset.sound === soundPack));
   }
 
-  function enterLooma(user) {
+  function enterLooma(user, silent) {
     activeUserId = user.id;
     currentUser = user;
-    localStorage.setItem('looma_session_v2', user.id);
+    saveSession(user);
     applyTheme(currentUser);
     updateMyUI();
     renderChannels();
@@ -250,48 +305,72 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderMembers();
     $('authOverlay').classList.add('hidden');
     $('appRoot').classList.remove('hidden');
-    const splash = $('welcomeSplash');
-    if (splash) {
-      $('welcomeUserNick').textContent = '@' + user.nick;
-      splash.classList.remove('hidden');
-      setTimeout(() => splash.classList.add('hidden'), 1700);
+    if (!silent) {
+      const splash = $('welcomeSplash');
+      if (splash) {
+        $('welcomeUserNick').textContent = '@' + user.nick;
+        splash.classList.remove('hidden');
+        setTimeout(() => splash.classList.add('hidden'), 1700);
+      }
+      playSound('login');
     }
-    playSound('login');
   }
 
   $('authForm').onsubmit = async e => {
     e.preventDefault();
+    const btn = $('authSubmitBtn');
     const rawLogin = $('authLogin').value.trim();
-    const pass = $('authPass').value;
+    const pass = $('authPass').value.trim();
+    $('authError').textContent = '';
 
-    if (isRegister) {
-      const email = rawLogin.toLowerCase();
-      const phone = normPhone($('authRegPhone').value);
-      const nick = $('authNick').value.trim();
-      if (!email && !phone) { playSound('error'); return ($('authError').textContent = 'Укажите хотя бы почту или телефон!'); }
-      if (email && accounts.some(a => a.email === email)) { playSound('error'); return ($('authError').textContent = 'Эта почта уже привязана!'); }
-      if (phone && accounts.some(a => a.phone === phone)) { playSound('error'); return ($('authError').textContent = 'Этот телефон уже привязан!'); }
-      if (accounts.some(a => a.nick.toLowerCase() === nick.toLowerCase())) { playSound('error'); return ($('authError').textContent = 'Никнейм занят!'); }
+    btn.disabled = true;
+    btn.textContent = isRegister ? 'Создание аккаунта...' : 'Проверка...';
 
-      const newUser = {
-        id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass,
-        nickColor: '#ffffff', themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber',
-        msgSize: '15px', avaRadius: '50%', fxMode: 'neon',
-        status: 'В сети', bio: '', avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)', friends: []
-      };
-      accounts.push(newUser);
-      await saveUserDB(newUser);
-      enterLooma(newUser);
-    } else {
-      const qLower = rawLogin.toLowerCase();
-      const qPhone = normPhone(rawLogin);
-      const found = accounts.find(a =>
-        (a.email && a.email === qLower) ||
-        (a.phone && qPhone && a.phone === qPhone) ||
-        a.nick.toLowerCase() === qLower
-      );
-      if (!found || found.pass !== pass) { playSound('error'); return ($('authError').textContent = 'Неверные данные входа или пароль!'); }
-      enterLooma(found);
+    try {
+      // Всегда подтягиваем свежий список аккаунтов с сервера перед проверкой
+      await loadAllFromServer();
+
+      if (isRegister) {
+        const email = rawLogin.toLowerCase();
+        const phone = normPhone($('authRegPhone').value);
+        const nick = $('authNick').value.trim();
+        if (!nick) { playSound('error'); return ($('authError').textContent = 'Введите никнейм!'); }
+        if (!email && !phone) { playSound('error'); return ($('authError').textContent = 'Укажите хотя бы почту или телефон!'); }
+        if (email && accounts.some(a => a.email && a.email.toLowerCase() === email)) { playSound('error'); return ($('authError').textContent = 'Эта почта уже привязана!'); }
+        if (phone && accounts.some(a => a.phone && normPhone(a.phone) === phone)) { playSound('error'); return ($('authError').textContent = 'Этот телефон уже привязан!'); }
+        if (accounts.some(a => a.nick.toLowerCase() === nick.toLowerCase())) { playSound('error'); return ($('authError').textContent = 'Никнейм уже занят!'); }
+
+        const newUser = {
+          id: 'u_' + Date.now(), isAdmin: false, nick: nick, email: email, phone: phone, pass: pass,
+          nickColor: '#ffffff', themeAccent: '#00e676', bgTheme: 'default', soundPack: 'cyber',
+          msgSize: '15px', avaRadius: '50%', fxMode: 'neon',
+          status: 'В сети', bio: '', avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)', friends: []
+        };
+
+        const { error } = await saveUserDB(newUser);
+        if (error) {
+          playSound('error');
+          return ($('authError').textContent = 'Ошибка сохранения на сервере: ' + error.message);
+        }
+        accounts.push(newUser);
+        enterLooma(newUser, false);
+      } else {
+        const qLower = rawLogin.toLowerCase();
+        const qPhone = normPhone(rawLogin);
+        const found = accounts.find(a =>
+          (a.email && a.email.toLowerCase() === qLower) ||
+          (a.phone && qPhone && normPhone(a.phone) === qPhone) ||
+          a.nick.toLowerCase() === qLower
+        );
+        if (!found || (found.pass || '').trim() !== pass) {
+          playSound('error');
+          return ($('authError').textContent = 'Неверные данные входа или пароль!');
+        }
+        enterLooma(found, false);
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = isRegister ? 'Создать единый аккаунт' : 'Войти';
     }
   };
 // --- КОНЕЦ ЧАСТИ 2 ---
@@ -396,7 +475,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('openProfileBtn').onclick = () => openSettings('paneProfile');
   $('openSettingsBtn').onclick = () => openSettings('paneProfile');
   $('closeSettingsBtn').onclick = () => $('settingsModal').classList.add('hidden');
-  $('logoutBtn').onclick = () => { localStorage.removeItem('looma_session_v2'); location.reload(); };
+  $('logoutBtn').onclick = () => { clearSession(); location.reload(); };
 
   document.querySelectorAll('.set-nav[data-pane]').forEach(btn => {
     btn.onclick = () => {
@@ -472,22 +551,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     const newEmail = $('editEmail').value.trim().toLowerCase();
     const newPhone = normPhone($('editPhone').value);
     if (!newEmail && !newPhone) { playSound('error'); $('contactMsg').style.color = '#ff5252'; return ($('contactMsg').textContent = 'Оставьте хотя бы почту или телефон!'); }
-    if (newEmail && accounts.some(a => a.id !== currentUser.id && a.email === newEmail)) { playSound('error'); $('contactMsg').style.color = '#ff5252'; return ($('contactMsg').textContent = 'Эта почта уже занята!'); }
-    if (newPhone && accounts.some(a => a.id !== currentUser.id && a.phone === newPhone)) { playSound('error'); $('contactMsg').style.color = '#ff5252'; return ($('contactMsg').textContent = 'Этот телефон уже занят!'); }
+    if (newEmail && accounts.some(a => a.id !== currentUser.id && a.email && a.email.toLowerCase() === newEmail)) { playSound('error'); $('contactMsg').style.color = '#ff5252'; return ($('contactMsg').textContent = 'Эта почта уже занята!'); }
+    if (newPhone && accounts.some(a => a.id !== currentUser.id && a.phone && normPhone(a.phone) === newPhone)) { playSound('error'); $('contactMsg').style.color = '#ff5252'; return ($('contactMsg').textContent = 'Этот телефон уже занят!'); }
     currentUser.email = newEmail; currentUser.phone = newPhone;
-    await saveUserDB(currentUser);
+    const { error } = await saveUserDB(currentUser);
+    if (error) { playSound('error'); $('contactMsg').style.color = '#ff5252'; return ($('contactMsg').textContent = 'Ошибка сохранения: ' + error.message); }
     $('contactMsg').style.color = 'var(--green)'; $('contactMsg').textContent = 'Контакты сохранены в облаке!';
   };
 
   $('passForm').onsubmit = async e => {
     e.preventDefault();
-    const oldP = $('oldPass').value;
+    const oldP = $('oldPass').value.trim();
     const newP = $('newPass').value.trim();
-    if (oldP !== currentUser.pass) { playSound('error'); $('passMsg').style.color = '#ff5252'; return ($('passMsg').textContent = 'Неверный текущий пароль!'); }
+    if (oldP !== (currentUser.pass || '').trim()) { playSound('error'); $('passMsg').style.color = '#ff5252'; return ($('passMsg').textContent = 'Неверный текущий пароль!'); }
     if (newP.length < 4) { playSound('error'); $('passMsg').style.color = '#ff5252'; return ($('passMsg').textContent = 'Новый пароль должен быть от 4 символов!'); }
     if (oldP === newP) { playSound('error'); $('passMsg').style.color = '#ff5252'; return ($('passMsg').textContent = 'Новый пароль совпадает со старым!'); }
     currentUser.pass = newP;
-    await saveUserDB(currentUser);
+    const { error } = await saveUserDB(currentUser);
+    if (error) { playSound('error'); $('passMsg').style.color = '#ff5252'; return ($('passMsg').textContent = 'Ошибка обновления: ' + error.message); }
     playSound('pop');
     $('passMsg').style.color = 'var(--green)';
     $('passMsg').textContent = 'Пароль успешно обновлён на сервере!';
@@ -499,7 +580,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (currentUser.isAdmin) return alert('Главный аккаунт администратора нельзя удалить!');
     if (!confirm('Удалить аккаунт «' + currentUser.nick + '» навсегда?')) return;
     await sb.from('looma_users').delete().eq('id', currentUser.id);
-    localStorage.removeItem('looma_session_v2'); location.reload();
+    clearSession(); location.reload();
   };
 
   let mediaRec = null, audioChunks = [], recSec = 0, recInt = null, cachedMicStream = null;
@@ -553,32 +634,59 @@ document.addEventListener('DOMContentLoaded', async () => {
 // --- КОНЕЦ ЧАСТИ 4 ---
 // --- НАЧАЛО ЧАСТИ 5 ---
   let localStream = null, screenStream = null, micMuted = false, camOn = false, callStartTime = null;
+  let ringInt = null, ringConnectTimer = null;
+
+  function stopRingingUI() {
+    clearInterval(ringInt);
+    clearTimeout(ringConnectTimer);
+    ringInt = null;
+    ringConnectTimer = null;
+    const tile = document.querySelector('#callStage .video-tile');
+    if (tile) tile.classList.remove('is-ringing');
+  }
 
   async function startCall(withVideo, roomName) {
     if (!roomName) roomName = 'Звонок';
     clearTimeout(micReleaseTimeout);
+    stopRingingUI();
     try {
       closeMobilePanels();
       if (localStream) localStream.getTracks().forEach(t => t.stop());
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: !!withVideo });
-      camOn = !!withVideo; micMuted = false; callStartTime = Date.now();
-      playSound('call');
-      $('callStage').classList.remove('hidden'); $('callMiniStatus').classList.remove('hidden');
-      $('callRoomLabel').textContent = roomName; $('localCallName').textContent = currentUser ? currentUser.nick : 'Вы';
+      camOn = !!withVideo; micMuted = false; callStartTime = null;
+
+      $('callStage').classList.remove('hidden');
+      $('callMiniStatus').classList.remove('hidden');
+      $('callRoomLabel').textContent = roomName + ' • Вызов...';
+      $('localCallName').innerHTML = escapeHTML(currentUser ? currentUser.nick : 'Вы') + '<span class="ring-badge" id="ringStatusTag">• Идут гудки...</span>';
       setAvaStyle($('localCallAva'), currentUser ? currentUser.avatarImg : null);
       $('toggleMicBtn').classList.add('active'); $('micMutedTag').classList.add('hidden');
       $('toggleCamBtn').classList.toggle('active', !!withVideo);
       if (withVideo) { $('localVideo').srcObject = localStream; $('localVideo').classList.remove('hidden'); $('localCallAva').classList.add('hidden'); }
       else { $('localVideo').classList.add('hidden'); $('localCallAva').classList.remove('hidden'); }
+
+      const tile = document.querySelector('#callStage .video-tile');
+      if (tile) tile.classList.add('is-ringing');
+      playSound('ring');
+      ringInt = setInterval(() => playSound('ring'), 2400);
+
+      ringConnectTimer = setTimeout(() => {
+        stopRingingUI();
+        callStartTime = Date.now();
+        playSound('call');
+        $('callRoomLabel').textContent = roomName + ' • В эфире';
+        $('localCallName').textContent = currentUser ? currentUser.nick : 'Вы';
+      }, 4800);
     } catch { playSound('error'); alert('Нет доступа к микрофону или камере.'); }
   }
 
   function endCall() {
+    stopRingingUI();
     if (localStream) { releaseMicLater(); localStream = null; }
     if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
     if (callStartTime && currentUser) {
       const mins = Math.max(1, Math.round((Date.now() - callStartTime) / 60000));
-      pushMessage('system', 'начал звонок продолжительностью ' + mins + ' мин.');
+      pushMessage('system', 'завершил звонок продолжительностью ' + mins + ' мин.');
       callStartTime = null;
     }
     camOn = false;
