@@ -631,7 +631,7 @@ input:focus, textarea:focus, select:focus {
 
 .btn-end-sm { background: #ff1744; color: #fff; border: none; border-radius: 7px; padding: 4px 8px; font-weight: 700; cursor: pointer; }
 .me-bar { margin-top: auto; background: var(--dock); padding: 9px 10px; border-top: 1px solid var(--border); }
-.me-trigger { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 11px; cursor: pointer; transition: 0.2s; }
+.me-trigger { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 11px; cursor: pointer; }
 .me-trigger:hover { background: var(--card); }
 
 .me-ava {
@@ -832,14 +832,37 @@ input:focus, textarea:focus, select:focus {
 @keyframes ringWave { 0% { box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.7); } 70% { box-shadow: 0 0 0 16px rgba(0, 230, 118, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 230, 118, 0); } }
 .video-tile.is-ringing { border-color: var(--green) !important; animation: callVibrate 0.5s ease-in-out infinite, ringWave 1.4s infinite !important; }
 .ring-badge { color: var(--green); font-weight: 800; margin-left: 6px; animation: blink 1s infinite; }
+/* Правая панель участников и плавные анимации */
+@keyframes paneFadeIn {
+0% { opacity: 0; transform: translateY(6px); }
+100% { opacity: 1; transform: translateY(0); }
+}
+.side-pane:not(.hidden),
+.set-pane:not(.hidden),
+.empty-chat-hero:not(.hidden),
+.messages:not(.hidden) {
+animation: paneFadeIn 0.22s ease-out;
+}
+.me-trigger, .mem-item, .ch-item, .dock-btn, .msg-ava {
+transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.me-trigger:active, .mem-item:active, .ch-item:active, .dock-btn:active, .msg-ava:active {
+transform: scale(0.95);
+}
+.me-ava, .mem-ava, .msg-ava, .card-ava, .tile-ava {
+border-radius: var(--ava-radius) !important;
+overflow: hidden;
+flex-shrink: 0;
+}
 .members-panel { width: 235px; background: var(--side); border-left: 1px solid var(--border); display: flex; flex-direction: column; z-index: 20; }
 .members-search { padding: 10px; border-bottom: 1px solid var(--border); display: flex; gap: 5px; align-items: center; }
 .members-search input { flex: 1; padding: 7px 10px; font-size: 13px; margin-bottom: 0; }
 .members-scroll { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 4px; }
 .mem-group { font-size: 11px; font-weight: 700; color: var(--muted); padding: 8px 8px 4px; }
-.mem-item { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 10px; cursor: pointer; transition: 0.15s; }
+.mem-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 12px; cursor: pointer; }
 .mem-item:hover { background: var(--card); }
-.mem-ava { width: 34px; height: 34px; min-width: 34px; border-radius: var(--ava-radius); background: var(--card); color: var(--muted); display: flex; align-items: center; justify-content: center; background-size: cover; background-position: center; position: relative; }
+.mem-ava { width: 36px; height: 36px; min-width: 36px; background-color: var(--card); border: 1px solid var(--border); color: var(--muted); display: flex; align-items: center; justify-content: center; background-size: cover; background-position: center; }
+.mem-only-nick { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mem-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mem-stat { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mobile-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); z-index: 15; }

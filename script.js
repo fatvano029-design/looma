@@ -1,6 +1,8 @@
 // --- НАЧАЛО ЧАСТИ 1 ---
 document.addEventListener('DOMContentLoaded', () => {
-  const FS_URL = 'https://googleapis.com';
+  const FS_DOC_BASE = 'projects/looma-14497/databases/(default)/documents/looma_kv';
+  const FS_URL = 'https://googleapis.com' + FS_DOC_BASE;
+  const FS_COMMIT = 'https://googleapis.comprojects/looma-14497/databases/(default)/documents:commit';
 
   const $ = id => document.getElementById(id);
 
@@ -15,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!user || !user.id) return;
     document.cookie = 'looma_uid=' + encodeURIComponent(user.id) + '; path=/; max-age=31536000; SameSite=Lax';
     try {
-      localStorage.setItem('looma_session_v6', user.id);
+      localStorage.setItem('looma_session_v7', user.id);
       const lightUser = Object.assign({}, user, { avatarImg: null, banner: 'linear-gradient(135deg,#1b2838,#7c4dff)' });
       localStorage.setItem('looma_cached_user', JSON.stringify(lightUser));
       localStorage.setItem('looma_cached_user_full', JSON.stringify(user));
@@ -24,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function getSavedSessionId() {
     let id = null;
-    try { id = localStorage.getItem('looma_session_v6'); } catch (e) {}
+    try { id = localStorage.getItem('looma_session_v7'); } catch (e) {}
     if (!id) {
       const m = document.cookie.match(/(?:^|;\s*)looma_uid=([^;]+)/);
       if (m) id = decodeURIComponent(m);
@@ -34,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearSession() {
     try {
-      localStorage.removeItem('looma_session_v6');
+      localStorage.removeItem('looma_session_v7');
       localStorage.removeItem('looma_cached_user');
       localStorage.removeItem('looma_cached_user_full');
     } catch (e) {}
@@ -57,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (_kvInFlight) return _kvInFlight;
     _kvInFlight = (async () => {
       try {
-        const res = await fetch(FS_URL + '?pageSize=500');
+        const res = await fetch(FS_URL + '?pageSize=500&_t=' + Date.now());
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const json = await res.json();
         const map = {};
@@ -120,10 +122,17 @@ document.addEventListener('DOMContentLoaded', () => {
     saveLocalBackup(_kvCache);
 
     const docId = pathToDocId(path);
-    const res = await fetch(FS_URL + '/' + docId, {
-      method: 'PATCH',
+    const res = await fetch(FS_COMMIT, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: { v: { stringValue: JSON.stringify(data) } } })
+      body: JSON.stringify({
+        writes: [{
+          update: {
+            name: FS_DOC_BASE + '/' + docId,
+            fields: { v: { stringValue: JSON.stringify(data) } }
+          }
+        }]
+      })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return data;
@@ -136,7 +145,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (keysToDel.length === 0) keysToDel.push(prefix);
     keysToDel.forEach(k => delete map[k]);
     saveLocalBackup(map);
-    await Promise.all(keysToDel.map(k => fetch(FS_URL + '/' + encodeURIComponent(k), { method: 'DELETE' }).catch(() => {})));
+
+    const writes = keysToDel.map(k => ({ delete: FS_DOC_BASE + '/' + encodeURIComponent(k) }));
+    await fetch(FS_COMMIT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ writes })
+    }).catch(() => {});
   }
 
   const USER_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
@@ -220,12 +235,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const notes = pack === 'retro' ? [440, 554.37, 659.25, 880] : [523.25, 659.25, 783.99, 1046.5];
         notes.forEach((freq, i) => {
           const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-          osc.type = pack === 'retro' ? 'square' : 'triangle'; osc.frequency.setValueAtTime(freq, now + i * 0.07);
-          gain.gain.setValueAtTime(0.06, now + i * 0.07); gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.07 + 0.25);
-          osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now + i * 0.07); osc.stop(now + i * 0.07 + 0.25);
-        });
-      } else if (type === 'call') {
-        [523.25, 659.25].forEach((freq, i) => {
+osc.type = pack === 'retro' ? 'square' : 'triangle'; osc.frequency.setValueAtTime(freq, now + i * 0.07);
+gain.gain.setValueAtTime(0.06, now + i * 0.07); gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.07 + 0.25);
+osc.connect(gain); gain.connect(audioCtx.destination); osc.start(now + i * 0.07); osc.stop(now + i * 0.07 + 0.25);
+});
+} else if (type === 'call') {
+[523.25, 659.25].forEach((freq, i) => {
 const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
 osc.type = 'sine'; osc.frequency.setValueAtTime(freq, now + i * 0.14);
 gain.gain.setValueAtTime(0.08, now + i * 0.14); gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.14 + 0.15);
@@ -324,50 +339,56 @@ activeChat = myTextChs.length ? myTextChs.at(0).id : null;
 return cloudOk;
 }
 let activeUserId = getSavedSessionId();
-currentUser = accounts.find(a => a.id === activeUserId) || null;
-if (!currentUser && activeUserId) {
-try {
-const raw = localStorage.getItem('looma_cached_user_full') || localStorage.getItem('looma_cached_user');
-const cached = JSON.parse(raw || 'null');
-if (cached && cached.id === activeUserId) {
-currentUser = normUserObj(cached);
-accounts.push(currentUser);
-}
-} catch (e) {}
-}
-let isRegister = false;
-let loginMethod = 'email';
-$('authRegPhone').addEventListener('input', () => autoPlusPhone($('authRegPhone')));
-$('editPhone').addEventListener('input', () => autoPlusPhone($('editPhone')));
-$('authLogin').addEventListener('input', () => {
-if (!isRegister && loginMethod === 'tel') autoPlusPhone($('authLogin'));
-});
-function setAuthTab(reg) {
-isRegister = reg;
-$('tabRegister').classList.toggle('active', reg);
-$('tabLogin').classList.toggle('active', !reg);
-$('loginMethodTabs').classList.toggle('hidden', reg);
-$('authTitle').textContent = reg ? 'Регистрация в Looma' : 'Вход в Looma';
-$('authSubmitBtn').textContent = reg ? 'Создать единый аккаунт' : 'Войти';
-$('authNick').classList.toggle('hidden', !reg);
-$('authNick').required = reg;
-$('authRegPhone').classList.toggle('hidden', !reg);
-$('authLogin').type = reg ? 'email' : (loginMethod === 'email' ? 'text' : 'tel');
-$('authLogin').placeholder = reg
-? 'Почта (необязательно, если есть телефон)'
-: (loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)');
-$('authLogin').required = !reg;
-$('authError').textContent = '';
-}
-setAuthTab(false);
-$('tabLogin').onclick = () => setAuthTab(false);
-$('tabRegister').onclick = () => setAuthTab(true);
-document.querySelectorAll('.sub-tab').forEach(btn => {
-btn.onclick = () => {
-document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
-btn.classList.add('active');
-loginMethod = btn.dataset.method;
-$('authLogin').type = loginMethod === 'email' ? 'text' : 'tel';
+  currentUser = accounts.find(a => a.id === activeUserId) || null;
+
+  if (!currentUser && activeUserId) {
+    try {
+      const raw = localStorage.getItem('looma_cached_user_full') || localStorage.getItem('looma_cached_user');
+      const cached = JSON.parse(raw || 'null');
+      if (cached && cached.id === activeUserId) {
+        currentUser = normUserObj(cached);
+        accounts.push(currentUser);
+      }
+    } catch (e) {}
+  }
+
+  let isRegister = false;
+  let loginMethod = 'email';
+
+  $('authRegPhone').addEventListener('input', () => autoPlusPhone($('authRegPhone')));
+  $('editPhone').addEventListener('input', () => autoPlusPhone($('editPhone')));
+  $('authLogin').addEventListener('input', () => {
+    if (!isRegister && loginMethod === 'tel') autoPlusPhone($('authLogin'));
+  });
+
+  function setAuthTab(reg) {
+    isRegister = reg;
+    $('tabRegister').classList.toggle('active', reg);
+    $('tabLogin').classList.toggle('active', !reg);
+    $('loginMethodTabs').classList.toggle('hidden', reg);
+    $('authTitle').textContent = reg ? 'Регистрация в Looma' : 'Вход в Looma';
+    $('authSubmitBtn').textContent = reg ? 'Создать единый аккаунт' : 'Войти';
+    $('authNick').classList.toggle('hidden', !reg);
+    $('authNick').required = reg;
+    $('authRegPhone').classList.toggle('hidden', !reg);
+    $('authLogin').type = reg ? 'email' : (loginMethod === 'email' ? 'text' : 'tel');
+    $('authLogin').placeholder = reg
+      ? 'Почта (необязательно, если есть телефон)'
+      : (loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)');
+    $('authLogin').required = !reg;
+    $('authError').textContent = '';
+  }
+  setAuthTab(false);
+
+  $('tabLogin').onclick = () => setAuthTab(false);
+  $('tabRegister').onclick = () => setAuthTab(true);
+
+  document.querySelectorAll('.sub-tab').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loginMethod = btn.dataset.method;
+      $('authLogin').type = loginMethod === 'email' ? 'text' : 'tel';
       $('authLogin').placeholder = loginMethod === 'email' ? 'Почта или ник' : 'Телефон (+79990000000)';
       $('authLogin').value = '';
     };
@@ -1171,7 +1192,6 @@ fList.appendChild(item);
     $('noWriteAlert').classList.toggle('hidden', writeAllowed);
     if (writeAllowed) $('messageInput').placeholder = 'Написать в #' + cur.id + '...';
 
-    // В каналах скрываем кнопки звонка и видеозвонка
     const isChannel = cur.kind === 'channel';
     $('startAudioCallBtn').style.display = isChannel ? 'none' : 'inline-flex';
     $('startVideoCallBtn').style.display = isChannel ? 'none' : 'inline-flex';
@@ -1304,26 +1324,18 @@ fList.appendChild(item);
     const ch = channels.find(c => c.id === activeChat);
     if (!ch) return;
 
-    const all = accounts.filter(u => u.nick.toLowerCase().includes(q));
-    list.innerHTML = '<div class="mem-group">УЧАСТНИКИ — ' + Object.keys(ch.roles || {}).length + '</div>';
+    const all = accounts.filter(u => u.nick.toLowerCase().includes(q) && ch.roles && ch.roles[u.id]);
+    list.innerHTML = '<div class="mem-group">УЧАСТНИКИ — ' + all.length + '</div>';
 
     all.forEach(u => {
-      const isMember = ch.roles && ch.roles[u.id];
-      if (!isMember) return;
-
-      const item = document.createElement('div'); item.className = 'mem-item';
+      const item = document.createElement('div');
+      item.className = 'mem-item';
       const avaStyle = u.avatarImg ? 'background-image:url(' + u.avatarImg + ')' : '';
       const avaText = u.avatarImg ? '' : USER_SVG;
-      const role = ch.roles && ch.roles[u.id];
-let roleBadge = '';
-if (u.isAdmin || role === 'owner') roleBadge = 'Владелец';
-else if (role === 'admin') roleBadge = 'Админ';
-item.innerHTML =
-'' + avaText + '' +
-'' +
-'' + escapeHTML(u.nick) + ' ' + roleBadge + '' +
-'' + escapeHTML(u.status || 'В сети') + '' +
-'';
+
+      item.innerHTML =
+        '<div class="mem-ava" style="' + avaStyle + '">' + avaText + '</div>' +
+'' + escapeHTML(u.nick) + '';
 item.onclick = () => { closeMobilePanels(); openUserProfile(u); };
 list.appendChild(item);
 });
@@ -1382,7 +1394,7 @@ row.querySelector('.msg-ava').onclick = openAuthor;
 row.querySelector('.msg-author').onclick = openAuthor;
 row.oncontextmenu = e => { e.preventDefault(); openMsgMenu(e.clientX, e.clientY, idx); };
 let pressTimer = null;
-row.addEventListener('touchstart', e => { const t = e.touches; pressTimer = setTimeout(() => { if (t) openMsgMenu(t.clientX, t.clientY, idx); }, 450); }, { passive: true });
+row.addEventListener('touchstart', e => { const t = e.touches.item(0); pressTimer = setTimeout(() => { if (t) openMsgMenu(t.clientX, t.clientY, idx); }, 450); }, { passive: true });
 row.addEventListener('touchend', () => clearTimeout(pressTimer));
 row.addEventListener('touchmove', () => clearTimeout(pressTimer));
 const zoomImg = row.querySelector('[data-zoom]');
@@ -1422,6 +1434,16 @@ e.preventDefault();
 if (!activeChat) return;
 const ch = channels.find(c => c.id === activeChat);
 if (!canWrite(ch)) return;
+if (mediaRec && mediaRec.state === 'recording') {
+await new Promise(resolve => {
+const origStop = mediaRec.onstop;
+mediaRec.onstop = ev => {
+if (origStop) origStop(ev);
+setTimeout(resolve, 120);
+};
+mediaRec.stop();
+});
+}
 if (pendingVoiceUrl) {
 const vData = pendingVoiceUrl;
 resetVoicePreview();
@@ -1703,7 +1725,7 @@ updateMyUI();
 renderFriendsTab();
 const newReqs = (currentUser.friendRequests || []).filter(id => !prevReqs.includes(id));
 if (newReqs.length > 0) {
-const sender = accounts.find(a => a.id === newReqs);
+const sender = accounts.find(a => a.id === newReqs.at(0));
 if (sender) showNotification('Новая заявка в друзья', sender.nick + ' хочет добавить вас в друзья', null, true);
 }
 }
