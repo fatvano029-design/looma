@@ -39,11 +39,11 @@ html:not([data-theme="light"]) #welcome {
   color: var(--text) !important;
 }
 
+html:not([data-theme="light"]) #searchbar,
+html:not([data-theme="light"]) #searchWrap,
 html:not([data-theme="light"]) .shead,
 html:not([data-theme="light"]) .chead,
-html:not([data-theme="light"]) .composer,
-html:not([data-theme="light"]) .sidehead,
-html:not([data-theme="light"]) .searchwrap input {
+html:not([data-theme="light"]) .composer {
   background-color: #161b26 !important;
   color: var(--text) !important;
   border-color: var(--border) !important;
@@ -78,7 +78,7 @@ html:not([data-theme="light"]) textarea {
   border-color: rgba(255, 255, 255, 0.12) !important;
 }
 
-/* Светлая тема (при выключении тёмной) */
+/* Светлая тема */
 html[data-theme="light"] {
   --bg: #eef2f6;
   --outgoing: #ede7ff;
