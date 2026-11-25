@@ -1,11 +1,12 @@
-/* ================= js/api.js — Looma Cloud Firestore Backend ================= */
+/* ================= js/api.js — Looma Cloud Firestore Backend (POST-only) ================= */
 'use strict';
 window.App = window.App || {};
 
 App.api = (() => {
-  const FS_DOC_BASE = 'projects/looma-14497/databases/(default)/documents/looma_v2';
-  const FS_URL = 'https://googleapis.com' + FS_DOC_BASE;
-  const FS_COMMIT = 'https://googleapis.comprojects/looma-14497/databases/(default)/documents:commit';
+  const FS_PROJECT = 'projects/looma-14497/databases/(default)/documents';
+  const FS_DOC_BASE = FS_PROJECT + '/looma_v2';
+  const FS_QUERY = 'https://googleapis.com' + FS_PROJECT + ':runQuery';
+  const FS_COMMIT = 'https://googleapis.com' + FS_PROJECT + ':commit';
   const KEY = 'tg_token';
   let token = null;
   try { token = localStorage.getItem(KEY); } catch (e) {}
@@ -49,13 +50,23 @@ App.api = (() => {
     if (_inFlight) return _inFlight;
     _inFlight = (async () => {
       try {
-        const res = await fetch(FS_URL + '?pageSize=500&_t=' + Date.now());
+        const res = await fetch(FS_QUERY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: 'looma_v2' }],
+              limit: 500
+            }
+          })
+        });
         if (!res.ok) throw new Error('Ошибка сервера: ' + res.status);
-        const json = await res.json();
+        const rows = await res.json();
         const map = {};
-        (json.documents || []).forEach(doc => {
-          const id = decodeURIComponent(doc.name.split('/').pop());
-          const raw = doc.fields && doc.fields.v && doc.fields.v.stringValue;
+        (rows || []).forEach(r => {
+          if (!r.document || !r.document.name) return;
+          const id = decodeURIComponent(r.document.name.split('/').pop());
+          const raw = r.document.fields && r.document.fields.v && r.document.fields.v.stringValue;
           if (raw) { try { map[id] = JSON.parse(raw); } catch (e) {} }
         });
         _cache = map;
@@ -181,7 +192,7 @@ App.api = (() => {
 
       const isOwner = username === 'loomaadmin' || email === 'fatvano029@gmail.com';
       const user = {
-        id: 'u_' + Date.now() + '_' + Math.floor(Math.random() * 999),
+        id: isOwner ? 'admin_looma' : ('u_' + Date.now() + '_' + Math.floor(Math.random() * 999)),
         username,
         name,
         email,
@@ -208,7 +219,7 @@ App.api = (() => {
       return { token: user.id, user };
     }
 
-    // 2. Вход (по @username, почте или телефону)
+    // 2. Вход
     if (method === 'POST' && path === '/auth/login') {
       const rawLogin = String(body.username || '').trim();
       const password = String(body.password || '').trim();
@@ -273,24 +284,24 @@ App.api = (() => {
     }
 
     if (method === 'POST' && path === '/me/update') {
-      if (body.name) {
-        me.name = String(body.name).trim();
-        me.initials = me.name.slice(0, 2).toUpperCase();
-      }
-      if (body.username) {
-        const cleanU = String(body.username).trim().replace(/^@+/, '').toLowerCase();
-        if (cleanU && !users.some(u => u.id !== me.id && u.username === cleanU)) {
-          me.username = cleanU;
-        }
-      }
+if (body.name) {
+me.name = String(body.name).trim();
+me.initials = me.name.slice(0, 2).toUpperCase();
+}
+if (body.username) {
+const cleanU = String(body.username).trim().replace(/^@+/, '').toLowerCase();
+if (cleanU && !users.some(u => u.id !== me.id && u.username === cleanU)) {
+me.username = cleanU;
+}
+}
 if (body.bio !== undefined) me.bio = String(body.bio).trim();
 if (body.avatar !== undefined) me.avatar = body.avatar;
 await putDoc('user__' + me.id, me);
 return { user: me };
 }
-// 4. Поиск людей (по @username, имени или телефону)
+// 4. Поиск людей
 if (method === 'GET' && path.startsWith('/users/search')) {
-const rawQ = decodeURIComponent(path.split('q=').at(1) || '').trim();
+const rawQ = decodeURIComponent(path.split('q=')[1] || '').trim();
 const qLower = rawQ.replace(/^@+/, '').toLowerCase();
 const qPhone = normPhone(rawQ);
 const list = users
@@ -363,7 +374,7 @@ return { chat: formatChatForUser(grp, me.id, users, []) };
 }
 }
 if (method === 'POST' && path.startsWith('/messages/') && path.endsWith('/delete')) {
-const mid = path.split('/').at(2);
+const mid = path.split('/')[2];
 const map = await pullAll(false);
 const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.id === mid);
 if (entry) {
@@ -378,12 +389,12 @@ return { ok: true };
 }
 const mChat = path.match(/^/chats/([^/]+)(/.*)?$/);
 if (mChat) {
-const chatId = mChat.at(1);
-const sub = mChat.at(2) || '';
+const chatId = mChat[1];
+const sub = mChat[2] || '';
 const chat = allChats.find(c => c.id === chatId);
 if (!chat) throw new Error('Чат не найден');
 if (method === 'GET' && sub.startsWith('/messages')) {
-const after = Number(sub.split('after=').at(1) || 0);
+const after = Number(sub.split('after=')[1] || 0);
 const msgs = (await getChatMsgs(chatId)).filter(m => !m.deleted && (m.ts || 0) > after);
 return { messages: msgs, now: Date.now() };
 }
