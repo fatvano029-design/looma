@@ -1,10 +1,53 @@
+/* ================= components/auth.js — Looma Standalone Auth ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
 
 App.components.auth = (() => {
+  const FS_DOC_BASE = 'projects/looma-14497/databases/(default)/documents/looma_v2';
+  const FS_URL = 'https://googleapis.com' + FS_DOC_BASE;
+  const FS_COMMIT = 'https://googleapis.comprojects/looma-14497/databases/(default)/documents:commit';
+  const COLORS = ['#7c4dff', '#00e5ff', '#00e676', '#ff5252', '#ffd740', '#e040fb', '#448aff'];
+  const getColor = s => COLORS[Math.abs(String(s).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % COLORS.length];
+
   let isRegister = true;
   let regAvatar = null;
+
+  function normPhone(p) {
+    let digits = String(p || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.length === 11 && digits.startsWith('8')) digits = '7' + digits.slice(1);
+    return '+' + digits;
+  }
+
+  async function fsGetAll() {
+    const res = await fetch(FS_URL + '?pageSize=500&_t=' + Date.now());
+    if (!res.ok) throw new Error('Ошибка сети: ' + res.status);
+    const json = await res.json();
+    const map = {};
+    (json.documents || []).forEach(doc => {
+      const id = decodeURIComponent(doc.name.split('/').pop());
+      const raw = doc.fields && doc.fields.v && doc.fields.v.stringValue;
+      if (raw) { try { map[id] = JSON.parse(raw); } catch (e) {} }
+    });
+    return map;
+  }
+
+  async function fsSave(docId, obj) {
+    const res = await fetch(FS_COMMIT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({
+        writes: [{
+          update: {
+            name: FS_DOC_BASE + '/' + docId,
+            fields: { v: { stringValue: JSON.stringify(obj) } }
+          }
+        }]
+      })
+    });
+    if (!res.ok) throw new Error('Ошибка сохранения: ' + res.status);
+  }
 
   function compressImg(file, cb) {
     const reader = new FileReader();
@@ -42,7 +85,7 @@ App.components.auth = (() => {
           '</div>' +
           '<input type="file" id="authAvaInput" accept="image/*" style="display:none">' +
           '<h1 id="authHeading" style="font-size:22px;font-weight:800;margin:0;color:#fff;">Регистрация в Looma</h1>' +
-          '<p id="authSub" style="font-size:13px;color:#8b95a5;margin:6px 0 0;text-align:center;">Создайте аккаунт один раз, чтобы общаться с друзьями</p>' +
+          '<p id="authSub" style="font-size:13px;color:#8b95a5;margin:6px 0 0;text-align:center;">Нажмите на иконку выше, чтобы выбрать аватарку</p>' +
         '</div>' +
 
         '<div style="display:flex;background:#0c0e14;padding:4px;border-radius:12px;margin-bottom:16px;border:1px solid rgba(255,255,255,0.06);">' +
@@ -83,7 +126,7 @@ App.components.auth = (() => {
 
     contactInp.addEventListener('input', () => {
       const v = contactInp.value;
-      if (/^[789]\d+$/.test(v)) {
+      if (/^\d+$/.test(v)) {
         contactInp.value = '+' + (v.startsWith('8') ? '7' + v.slice(1) : v);
       }
     });
@@ -115,50 +158,92 @@ App.components.auth = (() => {
       btn.textContent = isRegister ? 'Создание аккаунта...' : 'Вход...';
 
       try {
-        let res;
+        const map = await fsGetAll();
+        const users = Object.entries(map).filter(([k]) => k.startsWith('user__')).map(([, v]) => v);
+        const contactRaw = contactInp.value.trim();
+        const password = document.getElementById('authPassInp').value.trim();
+        let activeUser = null;
+
         if (isRegister) {
-          res = await App.api.signup({
-            name: document.getElementById('authNameInp').value,
-            username: document.getElementById('authUserInp').value,
-            contact: contactInp.value,
-            password: document.getElementById('authPassInp').value,
-            avatar: regAvatar
-          });
-        } else {
-          res = await App.api.login(contactInp.value, document.getElementById('authPassInp').value);
-        }
+          const name = document.getElementById('authNameInp').value.trim();
+          const username = document.getElementById('authUserInp').value.trim().replace(/^@+/, '').toLowerCase();
+          if (!name) throw new Error('Введите ваше имя или ник');
+          if (!username || username.length < 3) throw new Error('Придумайте @username (от 3 символов)');
+          if (!contactRaw) throw new Error('Укажите номер телефона или почту');
+          if (!password || password.length < 4) throw new Error('Пароль должен быть от 4 символов');
 
-        if (res && res.user) {
-          try {
-            localStorage.setItem('looma_profile_ext', JSON.stringify({
-              username: '@' + res.user.username,
-              bio: res.user.bio || '',
-              avatar: res.user.avatar || null
-            }));
-            const rawStore = JSON.parse(localStorage.getItem('tg_state') || '{}');
-            rawStore.settings = Object.assign({}, rawStore.settings, { profileName: res.user.name });
-            localStorage.setItem('tg_state', JSON.stringify(rawStore));
-          } catch (err) {}
-          location.reload();
-        }
-      } catch (err) {
-        errBox.textContent = err.message || 'Ошибка входа';
-        btn.disabled = false;
-        btn.textContent = isRegister ? 'Создать аккаунт' : 'Войти в Looma';
-      }
-    };
-  }
+          const isEmail = contactRaw.includes('@');
+          const email = isEmail ? contactRaw.toLowerCase() : '';
+          const phone = !isEmail ? normPhone(contactRaw) : '';
 
-  // Если токен пустой — сразу показываем экран регистрации/входа при открытии сайта
-  if (!App.api || !App.api.token) {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => show());
-    } else {
-      show();
-    }
-  }
-
-  const apiObj = { show, hide };
-  App.auth = apiObj;
-  return apiObj;
+          if (!email && (!phone || phone.length < 8)) throw new Error('Введите корректный телефон или почту');
+if (users.some(u => u.username === username)) throw new Error('Этот @username уже занят');
+if (email && users.some(u => u.email === email)) throw new Error('Эта почта уже зарегистрирована');
+if (phone && users.some(u => u.phone === phone)) throw new Error('Этот номер телефона уже зарегистрирован');
+const isOwner = username === 'loomaadmin' || email === 'fatvano029@gmail.com';
+activeUser = {
+id: isOwner ? 'admin_looma' : ('u_' + Date.now() + '' + Math.floor(Math.random() * 999)),
+username,
+name,
+email,
+phone,
+password,
+bio: '',
+avatar: regAvatar,
+initials: name.slice(0, 2).toUpperCase(),
+color: isOwner ? '#ffd740' : getColor(username),
+isAdmin: isOwner,
+lastSeen: Date.now()
+};
+await fsSave('user__' + activeUser.id, activeUser);
+await fsSave('chat__c_saved' + activeUser.id, {
+id: 'c_saved_' + activeUser.id,
+type: 'group',
+name: 'Избранное',
+members: [activeUser.id],
+userState: { [activeUser.id]: { pinned: true, muted: false, lastRead: Date.now() } }
+});
+} else {
+const qLower = contactRaw.replace(/^@+/, '').toLowerCase();
+const qPhone = normPhone(contactRaw);
+activeUser = users.find(u =>
+u.password === password && (
+u.username === qLower ||
+(u.email && u.email === qLower) ||
+(u.phone && qPhone && u.phone === qPhone)
+)
+);
+if (!activeUser) throw new Error('Аккаунт не найден или неверный пароль');
+activeUser.lastSeen = Date.now();
+await fsSave('user__' + activeUser.id, activeUser);
+}
+localStorage.setItem('tg_token', activeUser.id);
+localStorage.setItem('looma_profile_ext', JSON.stringify({
+username: '@' + activeUser.username,
+bio: activeUser.bio || '',
+avatar: activeUser.avatar || null
+}));
+const rawStore = JSON.parse(localStorage.getItem('tg_state') || '{}');
+rawStore.settings = Object.assign({}, rawStore.settings, { profileName: activeUser.name });
+localStorage.setItem('tg_state', JSON.stringify(rawStore));
+location.reload();
+} catch (err) {
+errBox.textContent = err.message || 'Ошибка соединения';
+btn.disabled = false;
+btn.textContent = isRegister ? 'Создать аккаунт' : 'Войти в Looma';
+}
+};
+}
+let hasToken = false;
+try { hasToken = !!localStorage.getItem('tg_token'); } catch (e) {}
+if (!hasToken) {
+if (document.readyState === 'loading') {
+document.addEventListener('DOMContentLoaded', () => show());
+} else {
+show();
+}
+}
+const apiObj = { show, hide };
+App.auth = apiObj;
+return apiObj;
 })();
