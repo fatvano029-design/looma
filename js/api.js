@@ -1,9 +1,9 @@
-/* ================= js/api.js — Cloud Firestore Backend Adapter ================= */
+/* ================= js/api.js — Looma Cloud Firestore Backend ================= */
 'use strict';
 window.App = window.App || {};
 
 App.api = (() => {
-  const FS_DOC_BASE = 'projects/looma-14497/databases/(default)/documents/tg_clone_v1';
+  const FS_DOC_BASE = 'projects/looma-14497/databases/(default)/documents/looma_v2';
   const FS_URL = 'https://googleapis.com' + FS_DOC_BASE;
   const FS_COMMIT = 'https://googleapis.comprojects/looma-14497/databases/(default)/documents:commit';
   const KEY = 'tg_token';
@@ -11,8 +11,15 @@ App.api = (() => {
   try { token = localStorage.getItem(KEY); } catch (e) {}
 
   const pad = n => String(n).padStart(2, '0');
-  const COLORS = ['#7c4dff', '#00e5ff', '#ff5252', '#00e676', '#ffd740', '#e040fb', '#448aff'];
+  const COLORS = ['#7c4dff', '#00e5ff', '#00e676', '#ff5252', '#ffd740', '#e040fb', '#448aff'];
   const getColor = s => COLORS[Math.abs(String(s).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % COLORS.length];
+
+  function normPhone(p) {
+    let digits = String(p || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.length === 11 && digits.startsWith('8')) digits = '7' + digits.slice(1);
+    return '+' + digits;
+  }
 
   function stampTime(m) {
     if (m && m.ts != null && !m.time) {
@@ -102,7 +109,7 @@ App.api = (() => {
     const me = users.find(u => u.id === token);
     if (!me) {
       setToken(null);
-      if (App.auth) App.auth.show('Сессия истекла — войдите снова.');
+      if (App.auth) App.auth.show('Войдите в аккаунт Looma');
       throw new Error('Unauthorized');
     }
     return me;
@@ -149,20 +156,40 @@ App.api = (() => {
     await pullAll(method !== 'GET');
     const users = await getUsers();
 
+    // 1. Регистрация
     if (method === 'POST' && path === '/auth/signup') {
-      const username = String(body.username || '').trim().toLowerCase();
-      const password = String(body.password || '').trim();
-      const name = String(body.name || username).trim();
-      if (!username || !password) throw new Error('Введите логин и пароль');
-      if (users.some(u => u.username === username)) throw new Error('Этот логин уже занят');
+      const data = typeof body === 'object' ? body : {};
+      const name = String(data.name || '').trim();
+      const username = String(data.username || '').trim().replace(/^@+/, '').toLowerCase();
+      const contactRaw = String(data.contact || '').trim();
+      const password = String(data.password || '').trim();
+      const avatar = data.avatar || null;
 
-      const isOwner = username === 'loomaadmin';
+      if (!name) throw new Error('Введите ваше имя или ник');
+      if (!username || username.length < 3) throw new Error('Придумайте @username (от 3 символов)');
+      if (!contactRaw) throw new Error('Укажите номер телефона или почту');
+      if (!password || password.length < 4) throw new Error('Пароль должен быть от 4 символов');
+
+      const isEmail = contactRaw.includes('@');
+      const email = isEmail ? contactRaw.toLowerCase() : '';
+      const phone = !isEmail ? normPhone(contactRaw) : '';
+
+      if (!email && (!phone || phone.length < 8)) throw new Error('Введите корректный телефон или почту');
+      if (users.some(u => u.username === username)) throw new Error('Этот @username уже занят');
+      if (email && users.some(u => u.email === email)) throw new Error('Эта почта уже зарегистрирована');
+      if (phone && users.some(u => u.phone === phone)) throw new Error('Этот номер телефона уже зарегистрирован');
+
+      const isOwner = username === 'loomaadmin' || email === 'fatvano029@gmail.com';
       const user = {
         id: 'u_' + Date.now() + '_' + Math.floor(Math.random() * 999),
         username,
+        name,
+        email,
+        phone,
         password,
-        name: isOwner ? 'LoomaAdmin' : name,
-        initials: (name || username).slice(0, 2).toUpperCase(),
+        bio: '',
+        avatar,
+        initials: name.slice(0, 2).toUpperCase(),
         color: isOwner ? '#ffd740' : getColor(username),
         isAdmin: isOwner,
         lastSeen: Date.now()
@@ -181,17 +208,31 @@ App.api = (() => {
       return { token: user.id, user };
     }
 
+    // 2. Вход (по @username, почте или телефону)
     if (method === 'POST' && path === '/auth/login') {
-      const username = String(body.username || '').trim().toLowerCase();
+      const rawLogin = String(body.username || '').trim();
       const password = String(body.password || '').trim();
-      let user = users.find(u => u.username === username && u.password === password);
+      const qLower = rawLogin.replace(/^@+/, '').toLowerCase();
+      const qPhone = normPhone(rawLogin);
 
-      if (!user && username === 'loomaadmin' && password === '&!LoOmaAdMin!&') {
+      let user = users.find(u =>
+        u.password === password && (
+          u.username === qLower ||
+          (u.email && u.email === qLower) ||
+          (u.phone && qPhone && u.phone === qPhone)
+        )
+      );
+
+      if (!user && (qLower === 'loomaadmin' || qLower === 'fatvano029@gmail.com' || qPhone === '+79910443406') && password === '&!LoOmaAdMin!&') {
         user = {
           id: 'admin_looma',
           username: 'loomaadmin',
+          name: 'LoomaAdmin',
+          email: 'fatvano029@gmail.com',
+          phone: '+79910443406',
           password: '&!LoOmaAdMin!&',
-          name: 'LoomaAdmin (Владелец)',
+          bio: 'Создатель Looma',
+          avatar: null,
           initials: 'LA',
           color: '#ffd740',
           isAdmin: true,
@@ -200,7 +241,7 @@ App.api = (() => {
         await putDoc('user__' + user.id, user);
       }
 
-      if (!user) throw new Error('Неверный логин или пароль');
+      if (!user) throw new Error('Аккаунт не найден или неверный пароль');
       user.lastSeen = Date.now();
       await putDoc('user__' + user.id, user);
       setToken(user.id);
@@ -226,62 +267,83 @@ App.api = (() => {
       putDoc('user__' + me.id, me).catch(() => {});
     }
 
+    // 3. Профиль и его обновление
     if (method === 'GET' && path === '/me') {
       return { user: me };
     }
 
-    if (method === 'GET' && path.startsWith('/users/search')) {
-      const rawQ = path.split('q=').at(1) || '';
-      const q = decodeURIComponent(rawQ).trim().toLowerCase();
-      const list = users
-        .filter(u => u.id !== me.id && (!q || u.username.includes(q) || (u.name || '').toLowerCase().includes(q)))
-        .map(u => ({
-          id: u.id,
-          username: u.username,
-          name: u.name,
-          initials: u.initials,
-          color: u.color,
-          online: Date.now() - (u.lastSeen || 0) < 45000
-        }));
-      return { users: list };
-    }
-
-    const allChats = await getChats();
-
-    if (method === 'GET' && path === '/chats') {
-      const myChats = allChats.filter(c => (c.members || []).includes(me.id));
-      const formatted = await Promise.all(myChats.map(async c => {
-        const msgs = await getChatMsgs(c.id);
-        return formatChatForUser(c, me.id, users, msgs);
-      }));
-      formatted.sort((a, b) => {
-        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-        const ta = a.lastMessage ? a.lastMessage.ts : 0;
-        const tb = b.lastMessage ? b.lastMessage.ts : 0;
-        return tb - ta;
-      });
-      return { chats: formatted };
-    }
-
-    if (method === 'POST' && path === '/chats') {
-      if (body.type === 'dm') {
-        const target = users.find(u => u.username === String(body.username || '').toLowerCase() || u.id === body.userId);
-        if (!target) throw new Error('Пользователь не найден');
-        const existing = allChats.find(c => c.type === 'dm' && c.members.includes(me.id) && c.members.includes(target.id));
-        if (existing) {
-          const msgs = await getChatMsgs(existing.id);
-          return { chat: formatChatForUser(existing, me.id, users, msgs) };
-        }
-        const dm = {
-          id: 'c_dm_' + [me.id, target.id].sort().join('_'),
-          type: 'dm',
-          name: '',
-          members: [me.id, target.id],
-          userState: { [me.id]: { lastRead: Date.now() }, [target.id]: { lastRead: 0 } }
-        };
-        await putDoc('chat__' + dm.id, dm);
-        return { chat: formatChatForUser(dm, me.id, users, []) };
+    if (method === 'POST' && path === '/me/update') {
+      if (body.name) {
+        me.name = String(body.name).trim();
+        me.initials = me.name.slice(0, 2).toUpperCase();
       }
+      if (body.username) {
+        const cleanU = String(body.username).trim().replace(/^@+/, '').toLowerCase();
+        if (cleanU && !users.some(u => u.id !== me.id && u.username === cleanU)) {
+          me.username = cleanU;
+        }
+      }
+      if (body.bio !== undefined) me.bio = String(body.bio).trim();
+if (body.avatar !== undefined) me.avatar = body.avatar;
+await putDoc('user__' + me.id, me);
+return { user: me };
+}
+// 4. Поиск людей (по @username, имени или телефону)
+if (method === 'GET' && path.startsWith('/users/search')) {
+const rawQ = decodeURIComponent(path.split('q=').at(1) || '').trim();
+const qLower = rawQ.replace(/^@+/, '').toLowerCase();
+const qPhone = normPhone(rawQ);
+const list = users
+.filter(u => u.id !== me.id && (
+!qLower ||
+u.username.includes(qLower) ||
+(u.name || '').toLowerCase().includes(qLower) ||
+(u.phone && qPhone && u.phone === qPhone)
+))
+.map(u => ({
+id: u.id,
+username: u.username,
+name: u.name,
+initials: u.initials,
+color: u.color,
+online: Date.now() - (u.lastSeen || 0) < 45000
+}));
+return { users: list };
+}
+const allChats = await getChats();
+if (method === 'GET' && path === '/chats') {
+const myChats = allChats.filter(c => (c.members || []).includes(me.id));
+const formatted = await Promise.all(myChats.map(async c => {
+const msgs = await getChatMsgs(c.id);
+return formatChatForUser(c, me.id, users, msgs);
+}));
+formatted.sort((a, b) => {
+if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+const ta = a.lastMessage ? a.lastMessage.ts : 0;
+const tb = b.lastMessage ? b.lastMessage.ts : 0;
+return tb - ta;
+});
+return { chats: formatted };
+}
+if (method === 'POST' && path === '/chats') {
+if (body.type === 'dm') {
+const target = users.find(u => u.username === String(body.username || '').toLowerCase() || u.id === body.userId);
+if (!target) throw new Error('Пользователь не найден');
+const existing = allChats.find(c => c.type === 'dm' && c.members.includes(me.id) && c.members.includes(target.id));
+if (existing) {
+const msgs = await getChatMsgs(existing.id);
+return { chat: formatChatForUser(existing, me.id, users, msgs) };
+}
+const dm = {
+id: 'c_dm_' + [me.id, target.id].sort().join('_'),
+type: 'dm',
+name: '',
+members: [me.id, target.id],
+userState: { [me.id]: { lastRead: Date.now() }, [target.id]: { lastRead: 0 } }
+};
+await putDoc('chat__' + dm.id, dm);
+return { chat: formatChatForUser(dm, me.id, users, []) };
+}
 if (body.type === 'group') {
 const gName = String(body.name || 'Новая группа').trim();
 const picked = (body.memberUsernames || [])
@@ -395,14 +457,12 @@ return {};
 return {
 get token() { return token; },
 setToken,
-signup: (username, password, name) =>
-req('POST', '/auth/signup', { username, password, name }),
-login: (username, password) =>
-req('POST', '/auth/login', { username, password }),
+signup: (payload) => req('POST', '/auth/signup', payload),
+login: (username, password) => req('POST', '/auth/login', { username, password }),
 me: () => req('GET', '/me'),
+updateProfile: (patch) => req('POST', '/me/update', patch),
 chats: async () => ({ chats: (await req('GET', '/chats')).chats.map(normChat) }),
-createChat: async (payload) =>
-({ chat: normChat((await req('POST', '/chats', payload)).chat) }),
+createChat: async (payload) => ({ chat: normChat((await req('POST', '/chats', payload)).chat) }),
 messages: async (id, after) => {
 const d = await req('GET', '/chats/' + id + '/messages' + (after ? '?after=' + after : ''));
 const myId = token;
@@ -412,8 +472,7 @@ return stampTime(m);
 });
 return { messages: list, now: d.now };
 },
-send: async (id, msg) =>
-({ message: stampTime((await req('POST', '/chats/' + id + '/messages', msg)).message) }),
+send: async (id, msg) => ({ message: stampTime((await req('POST', '/chats/' + id + '/messages', msg)).message) }),
 markRead: (id) => req('POST', '/chats/' + id + '/read'),
 typing: (id) => req('POST', '/chats/' + id + '/typing'),
 getTyping: (id) => req('GET', '/chats/' + id + '/typing'),
