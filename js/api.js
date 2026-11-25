@@ -11,7 +11,7 @@ App.api = (() => {
   try { token = localStorage.getItem(KEY); } catch (e) {}
 
   const pad = n => String(n).padStart(2, '0');
-  const COLORS = ['#e17076', '#faa774', '#a695e7', '#7bc862', '#6ec9cb', '#65aadd', '#ee7aae'];
+  const COLORS = ['#7c4dff', '#00e5ff', '#ff5252', '#00e676', '#ffd740', '#e040fb', '#448aff'];
   const getColor = s => COLORS[Math.abs(String(s).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % COLORS.length];
 
   function stampTime(m) {
@@ -35,7 +35,6 @@ App.api = (() => {
     } catch (e) {}
   }
 
-  // Работа с Cloud Firestore через POST :commit (работает в РФ без VPN)
   let _cache = null, _cacheTs = 0, _inFlight = null;
 
   async function pullAll(force) {
@@ -150,7 +149,6 @@ App.api = (() => {
     await pullAll(method !== 'GET');
     const users = await getUsers();
 
-    // 1. Регистрация
     if (method === 'POST' && path === '/auth/signup') {
       const username = String(body.username || '').trim().toLowerCase();
       const password = String(body.password || '').trim();
@@ -172,7 +170,6 @@ App.api = (() => {
       await putDoc('user__' + user.id, user);
       setToken(user.id);
 
-      // Создаём Избранное для нового аккаунта
       const savedChat = {
         id: 'c_saved_' + user.id,
         type: 'group',
@@ -184,13 +181,11 @@ App.api = (() => {
       return { token: user.id, user };
     }
 
-    // 2. Вход
     if (method === 'POST' && path === '/auth/login') {
       const username = String(body.username || '').trim().toLowerCase();
       const password = String(body.password || '').trim();
       let user = users.find(u => u.username === username && u.password === password);
 
-      // Автосоздание аккаунта Владельца при первом входе
       if (!user && username === 'loomaadmin' && password === '&!LoOmaAdMin!&') {
         user = {
           id: 'admin_looma',
@@ -209,6 +204,19 @@ App.api = (() => {
       user.lastSeen = Date.now();
       await putDoc('user__' + user.id, user);
       setToken(user.id);
+
+      const allChats = await getChats();
+      if (!allChats.some(c => (c.members || []).includes(user.id))) {
+        const savedChat = {
+          id: 'c_saved_' + user.id,
+          type: 'group',
+          name: 'Избранное',
+          members: [user.id],
+          userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
+        };
+        await putDoc('chat__' + savedChat.id, savedChat);
+      }
+
       return { token: user.id, user };
     }
 
@@ -218,14 +226,13 @@ App.api = (() => {
       putDoc('user__' + me.id, me).catch(() => {});
     }
 
-    // 3. Текущий профиль
     if (method === 'GET' && path === '/me') {
       return { user: me };
     }
 
-    // 4. Поиск людей
     if (method === 'GET' && path.startsWith('/users/search')) {
-      const q = decodeURIComponent((path.split('q=')[1] || '')).trim().toLowerCase();
+      const rawQ = path.split('q=').at(1) || '';
+      const q = decodeURIComponent(rawQ).trim().toLowerCase();
       const list = users
         .filter(u => u.id !== me.id && (!q || u.username.includes(q) || (u.name || '').toLowerCase().includes(q)))
         .map(u => ({
@@ -241,7 +248,6 @@ App.api = (() => {
 
     const allChats = await getChats();
 
-    // 5. Список чатов
     if (method === 'GET' && path === '/chats') {
       const myChats = allChats.filter(c => (c.members || []).includes(me.id));
       const formatted = await Promise.all(myChats.map(async c => {
@@ -257,7 +263,6 @@ App.api = (() => {
       return { chats: formatted };
     }
 
-    // 6. Создание ЛС или группы
     if (method === 'POST' && path === '/chats') {
       if (body.type === 'dm') {
         const target = users.find(u => u.username === String(body.username || '').toLowerCase() || u.id === body.userId);
@@ -277,10 +282,9 @@ App.api = (() => {
         await putDoc('chat__' + dm.id, dm);
         return { chat: formatChatForUser(dm, me.id, users, []) };
       }
-
-      if (body.type === 'group') {
-        const gName = String(body.name || 'Новая группа').trim();
-        const picked = (body.memberUsernames || [])
+if (body.type === 'group') {
+const gName = String(body.name || 'Новая группа').trim();
+const picked = (body.memberUsernames || [])
 .map(un => users.find(u => u.username === String(un).toLowerCase()))
 .filter(Boolean)
 .map(u => u.id);
@@ -296,9 +300,8 @@ await putDoc('chat__' + grp.id, grp);
 return { chat: formatChatForUser(grp, me.id, users, []) };
 }
 }
-// 7. Удаление сообщения
 if (method === 'POST' && path.startsWith('/messages/') && path.endsWith('/delete')) {
-const mid = path.split('/')[2];
+const mid = path.split('/').at(2);
 const map = await pullAll(false);
 const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.id === mid);
 if (entry) {
@@ -311,15 +314,14 @@ await putDoc(docKey, msgObj);
 }
 return { ok: true };
 }
-// 8. Действия внутри конкретного чата (/chats/:id/...)
 const mChat = path.match(/^/chats/([^/]+)(/.*)?$/);
 if (mChat) {
-const chatId = mChat[1];
-const sub = mChat[2] || '';
+const chatId = mChat.at(1);
+const sub = mChat.at(2) || '';
 const chat = allChats.find(c => c.id === chatId);
 if (!chat) throw new Error('Чат не найден');
 if (method === 'GET' && sub.startsWith('/messages')) {
-const after = Number((sub.split('after=')[1] || 0));
+const after = Number(sub.split('after=').at(1) || 0);
 const msgs = (await getChatMsgs(chatId)).filter(m => !m.deleted && (m.ts || 0) > after);
 return { messages: msgs, now: Date.now() };
 }
