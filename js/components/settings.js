@@ -46,6 +46,8 @@ App.components.settings = (() => {
     reader.readAsDataURL(file);
   }
 
+  let isEditingProfile = false;
+
   function open() {
     App.store.setActive(null);
     if (App.components.chatview.stopPoll) App.components.chatview.stopPoll();
@@ -59,7 +61,24 @@ App.components.settings = (() => {
 
     const avaStyle = ext.avatar
       ? 'background-image:url(' + ext.avatar + ');background-size:cover;background-position:center;color:transparent;'
-      : '';
+      : 'background:linear-gradient(135deg,#00e676,#7c4dff);color:#fff;';
+
+    const profileBlock = isEditingProfile
+      ? '<div class="srow" style="flex-direction:column;align-items:stretch;gap:10px;padding-top:4px;">' +
+          '<input id="profilename" value="' + esc(s.profileName) + '" placeholder="Ваше имя" maxlength="40" style="padding:10px 12px;">' +
+          '<input id="profileUser" value="' + esc(ext.username || '') + '" placeholder="@username (уникальный тег)" maxlength="32" style="padding:10px 12px;">' +
+          '<input id="profileBio" value="' + esc(ext.bio || '') + '" placeholder="О себе (описание профиля)" maxlength="120" style="padding:10px 12px;">' +
+          '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+            '<button type="button" id="cancelProfileBtn" style="padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--grey);cursor:pointer;font-weight:600;">Отмена</button>' +
+            '<button type="button" id="saveProfileBtn" style="padding:8px 16px;border-radius:10px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-weight:700;">Сохранить</button>' +
+          '</div>' +
+        '</div>'
+      : '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:16px;font-weight:700;color:var(--text);">' + esc(s.profileName) + '</div>' +
+          '<div class="desc" style="color:#00e5ff;font-weight:600;margin-top:2px;">' + esc(ext.username || '@looma_user') + '</div>' +
+          (ext.bio ? '<div class="desc" style="margin-top:3px;">' + esc(ext.bio) + '</div>' : '<div class="desc" style="margin-top:2px;">Нажмите на кружок слева для смены фото</div>') +
+        '</div>' +
+        '<button class="iconbtn" id="nameEdit" title="Редактировать профиль">' + icon('edit') + '</button>';
 
     p.innerHTML =
       '<div id="settingsview" class="open">' +
@@ -70,16 +89,11 @@ App.components.settings = (() => {
           '<div class="srow">' +
             '<div class="avatar g2 a60" id="setAvaBox" title="Нажмите, чтобы загрузить фото" style="cursor:pointer;' + avaStyle + '">' + App.utils.initials(s.profileName) + '</div>' +
             '<input type="file" id="setAvaInput" accept="image/*" style="display:none">' +
-            '<div style="flex:1;min-width:0">' +
-              '<input id="profilename" value="' + esc(s.profileName) + '" placeholder="Ваше имя" maxlength="40">' +
-              '<div class="desc">Нажмите на кружок слева, чтобы сменить аватарку</div>' +
-            '</div>' +
-            '<button class="iconbtn" id="nameEdit">' + icon('edit') + '</button>' +
+            (isEditingProfile
+              ? '<div style="flex:1;min-width:0"><div style="font-weight:700;">Редактирование профиля</div><div class="desc">Измените имя, тег или описание ниже</div></div>'
+              : profileBlock) +
           '</div>' +
-          '<div class="srow" style="gap:10px;flex-direction:column;align-items:stretch;">' +
-            '<input id="profileUser" value="' + esc(ext.username || '') + '" placeholder="@username (ваш уникальный тег)" maxlength="32">' +
-            '<input id="profileBio" value="' + esc(ext.bio || '') + '" placeholder="О себе (описание профиля)" maxlength="120">' +
-          '</div>' +
+          (isEditingProfile ? profileBlock : '') +
         '</div>' +
         '<div class="scard">' +
           togRow('darkTheme', 'Тёмная тема', 'Глубокий графитовый стиль Looma (выкл. — светлая)', isDark) +
@@ -99,10 +113,14 @@ App.components.settings = (() => {
           icon('back') + '</div></div>' +
       '</div></div>';
 
-    $('setBack').addEventListener('click', close);
+    $('setBack').addEventListener('click', () => { isEditingProfile = false; close(); });
 
     $('logoutRow').addEventListener('click', () => {
-      try { localStorage.removeItem('tg_token'); } catch (e) {}
+      try {
+        Object.keys(localStorage).forEach(k => {
+          if (k.startsWith('tg_') || k.startsWith('looma_profile')) localStorage.removeItem(k);
+        });
+      } catch (e) {}
       if (App.api && App.api.setToken) App.api.setToken(null);
       location.reload();
     });
@@ -113,29 +131,42 @@ App.components.settings = (() => {
       if (!f) return;
       compressAva(f, url => {
         saveExt({ avatar: url });
+        if (App.api && App.api.updateProfile) App.api.updateProfile({ avatar: url }).catch(() => {});
         App.utils.toast('Аватарка Looma обновлена');
         open();
       });
     });
 
-    $('nameEdit').addEventListener('click', () => $('profilename').focus());
-    $('profilename').addEventListener('change', e => {
-      const name = e.target.value.trim() || 'Looma User';
-      App.store.updateSettings({ profileName: name });
-      App.utils.toast('Имя обновлено');
-      open();
-    });
+    if ($('nameEdit')) {
+      $('nameEdit').addEventListener('click', () => {
+        isEditingProfile = true;
+        open();
+        setTimeout(() => { if ($('profilename')) $('profilename').focus(); }, 30);
+      });
+    }
 
-    $('profileUser').addEventListener('change', e => {
-      const val = e.target.value.trim().replace(/^@+/, '');
-      saveExt({ username: val ? '@' + val : '' });
-      App.utils.toast('Юзернейм сохранён');
-    });
+    if ($('cancelProfileBtn')) {
+      $('cancelProfileBtn').addEventListener('click', () => {
+        isEditingProfile = false;
+        open();
+      });
+    }
 
-    $('profileBio').addEventListener('change', e => {
-      saveExt({ bio: e.target.value.trim() });
-      App.utils.toast('Описание профиля обновлено');
-    });
+    if ($('saveProfileBtn')) {
+      $('saveProfileBtn').addEventListener('click', () => {
+        const name = $('profilename').value.trim() || 'Looma User';
+        const rawUser = $('profileUser').value.trim().replace(/^@+/, '');
+        const bio = $('profileBio').value.trim();
+        App.store.updateSettings({ profileName: name });
+        saveExt({ username: rawUser ? '@' + rawUser : '', bio });
+        if (App.api && App.api.updateProfile) {
+          App.api.updateProfile({ name, username: rawUser, bio }).catch(() => {});
+        }
+        isEditingProfile = false;
+        App.utils.toast('Профиль Looma сохранён');
+        open();
+      });
+    }
 
     p.querySelectorAll('.toggle').forEach(t =>
       t.addEventListener('click', () => {
