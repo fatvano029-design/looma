@@ -283,7 +283,7 @@ App.api = (() => {
           me.username = cleanU;
         }
       }
-      if (body.bio !== undefined) me.bio = String(body.bio).trim();
+if (body.bio !== undefined) me.bio = String(body.bio).trim();
 if (body.avatar !== undefined) me.avatar = body.avatar;
 await putDoc('user__' + me.id, me);
 return { user: me };
