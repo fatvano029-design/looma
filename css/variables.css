@@ -1,4 +1,4 @@
-/* ================= variables.css — Looma Dark & Light Themes ================= */
+/* ================= variables.css — Looma Dark & Light Themes + Animations ================= */
 :root {
   --accent: #7c4dff;
   --accent-dark: #651fff;
@@ -109,4 +109,48 @@ html[data-theme="light"] {
   --border: #e2e8f0;
   --hover: rgba(124, 77, 255, 0.08);
   --active-chat: rgba(124, 77, 255, 0.15);
+}
+
+/* Плавные анимации переходов, ввода и удаления сообщений */
+@keyframes loomaFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes loomaCardPop {
+  0% { opacity: 0; transform: translateY(14px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes msgSlideIn {
+  0% { opacity: 0; transform: translateY(10px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes msgVanish {
+  0% { opacity: 1; transform: scale(1); max-height: 200px; }
+  100% { opacity: 0; transform: translateX(18px) scale(0.92); max-height: 0; margin: 0; padding: 0; }
+}
+
+.bubble, .msg {
+  animation: msgSlideIn 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.18s ease, opacity 0.22s ease, background-color 0.2s ease;
+}
+
+.bubble.deleting, .msg.deleting {
+  animation: msgVanish 0.26s ease forwards !important;
+  pointer-events: none;
+}
+
+#settingsview, #chatpane, .chatitem, .iconbtn, .avatar, button {
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.chatitem:active, .iconbtn:active, .avatar:active, button:active {
+  transform: scale(0.95);
+}
+
+input:focus, textarea:focus {
+  border-color: #7c4dff !important;
+  box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.22) !important;
 }
