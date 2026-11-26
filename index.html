@@ -58,7 +58,18 @@
     50% { transform: scale(1.06); }
   }
 
-  /* Фикс светлой темы + чёткая обводка названий и карточек чатов */
+  /* Красивый чистый градиентный фон чата вместо тёмной клетки */
+  #chatpane, #msglist, .messages, .chat-body {
+    background-image: none !important;
+  }
+  [data-theme="dark"] #chatpane {
+    background: radial-gradient(circle at 20% 15%, #191d2e 0%, #0f121c 65%, #0b0d14 100%) !important;
+  }
+  [data-theme="light"] #chatpane {
+    background: linear-gradient(160deg, #eef2ff 0%, #f8fafc 55%, #e2e8f0 100%) !important;
+  }
+
+  /* Фикс светлой темы: названия чатов, текст сообщений и пузыри */
   [data-theme="light"] .chat-title,
   [data-theme="light"] .chat-name,
   [data-theme="light"] .row-title,
@@ -72,6 +83,21 @@
   [data-theme="light"] .chat-row {
     background: #ffffff !important;
     border: 1px solid #d1d5db !important;
+    color: #111827 !important;
+  }
+  [data-theme="light"] .bubble,
+  [data-theme="light"] .msg-bubble {
+    color: #111827 !important;
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  }
+  [data-theme="light"] .msg.out .bubble,
+  [data-theme="light"] .bubble.out {
+    background: #e0e7ff !important;
+    color: #111827 !important;
+  }
+  [data-theme="light"] .msg.in .bubble,
+  [data-theme="light"] .bubble.in {
+    background: #ffffff !important;
     color: #111827 !important;
   }
   .chatitem, .chat-row {
@@ -125,7 +151,7 @@
       </div>
     </div>
     <div id="chatlist"></div>
-    <button id="newChatBtn" class="iconbtn fab" title="Новый чат"></button>
+    <button id="newChatBtn" class="iconbtn fab" title="Создать"></button>
   </aside>
 
   <main id="chatpane">
@@ -159,21 +185,18 @@
       'js/components/inputbar.js',
       'js/components/infopanel.js',
       'js/components/settings.js',
-      'js/app.js'
-    ];
-    function loadNext(i) {
-      if (i >= files.length) {
-        if (window.App && App.init && document.readyState !== 'loading') App.init();
-        return;
-      }
-      const s = document.createElement('script');
-      s.src = files[i] + '?v=' + v;
-      s.onload = () => loadNext(i + 1);
-      s.onerror = () => loadNext(i + 1);
-      document.body.appendChild(s);
-    }
-    loadNext(0);
-  })();
-</script>
-</body>
-</html>
+'js/app.js'
+];
+function loadNext(i) {
+if (i >= files.length) {
+if (window.App && App.init && document.readyState !== 'loading') App.init();
+return;
+}
+const s = document.createElement('script');
+s.src = files[i] + '?v=' + v;
+s.onload = () => loadNext(i + 1);
+s.onerror = () => loadNext(i + 1);
+document.body.appendChild(s);
+}
+loadNext(0);
+})();
