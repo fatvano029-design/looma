@@ -1,11 +1,10 @@
-/* ================= components/newchat.js — DM, Group & Channel Creator ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
 
 App.components.newchat = (() => {
   const { $, esc, icon, initials } = App.utils;
-  let createType = 'dm'; // 'dm' | 'group' | 'channel'
+  let createType = 'dm';
   let picked = [];
 
   function isEn() {
@@ -37,7 +36,7 @@ App.components.newchat = (() => {
         '<div class="ncsearch"><input id="ncSearch" placeholder="' + (en ? 'Search people…' : 'Поиск пользователей по @username…') + '" autocomplete="off"></div>' +
         '<div class="flist" id="ncResults"><div class="ncempty">' + (en ? 'Type to search registered users' : 'Введите имя или @username для поиска') + '</div></div>' +
         '<div class="ncfoot" id="ncFoot" style="display:none">' +
-          '<span id="ncCount">' + (en ? '0 selected' : 'Выбрано: 0') + '</span>' +
+          '<span id="ncCount">' + (en ? 'Members (optional)' : 'Участники (можно создать одному)') + '</span>' +
           '<button class="authbtn" id="ncCreate">' + (en ? 'Create' : 'Создать') + '</button>' +
         '</div>' +
       '</div>';
@@ -61,11 +60,11 @@ App.components.newchat = (() => {
         if (createType === 'channel') {
           $('ncName').placeholder = en ? 'Channel name' : 'Название канала';
           $('ncCreate').textContent = en ? 'Create channel' : 'Создать канал';
-          $('ncCount').textContent = en ? 'Subscribers (optional)' : 'Подписчики (необязательно)';
+          $('ncCount').textContent = en ? 'Subscribers (optional)' : 'Можно создать без подписчиков';
         } else if (createType === 'group') {
           $('ncName').placeholder = en ? 'Group name' : 'Название группы';
           $('ncCreate').textContent = en ? 'Create group' : 'Создать группу';
-          $('ncCount').textContent = en ? '0 selected' : 'Выбрано: 0';
+          $('ncCount').textContent = en ? 'Members (optional)' : 'Можно создать одному';
         }
         renderResults([]);
         $('ncSearch').value = '';
@@ -148,10 +147,6 @@ App.components.newchat = (() => {
     const isChan = createType === 'channel';
     if (!name) {
       App.utils.toast(isChan ? (en ? 'Enter channel name' : 'Введите название канала') : (en ? 'Enter group name' : 'Введите название группы'));
-      return;
-    }
-    if (!isChan && !picked.length) {
-      App.utils.toast(en ? 'Pick at least one member' : 'Выберите хотя бы одного участника');
       return;
     }
     try {
