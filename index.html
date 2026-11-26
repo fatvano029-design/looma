@@ -15,8 +15,83 @@
 <link rel="stylesheet" href="css/inputbar.css">
 <link rel="stylesheet" href="css/panels.css">
 <link rel="stylesheet" href="css/auth.css">
+<style>
+  #loomaSplash {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: #0d0f17;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    transition: opacity 0.35s ease, visibility 0.35s ease;
+  }
+  #loomaSplash.hide {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .looma-splash-logo {
+    width: 76px;
+    height: 76px;
+    border-radius: 24px;
+    background: linear-gradient(135deg, #00e676, #448aff);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 38px;
+    font-weight: 800;
+    color: #fff;
+    font-family: system-ui, -apple-system, sans-serif;
+    box-shadow: 0 12px 36px rgba(68, 138, 255, 0.35);
+    animation: loomaPulse 1.4s ease-in-out infinite;
+  }
+  .looma-splash-text {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 14px;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  @keyframes loomaPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.06); }
+  }
+
+  /* Фикс светлой темы + чёткая обводка названий и карточек чатов */
+  [data-theme="light"] .chat-title,
+  [data-theme="light"] .chat-name,
+  [data-theme="light"] .row-title,
+  [data-theme="light"] #chatlist .title,
+  [data-theme="light"] #chatlist .name,
+  [data-theme="light"] .chatitem .ctitle {
+    color: #111827 !important;
+    font-weight: 700 !important;
+  }
+  [data-theme="light"] .chatitem,
+  [data-theme="light"] .chat-row {
+    background: #ffffff !important;
+    border: 1px solid #d1d5db !important;
+    color: #111827 !important;
+  }
+  .chatitem, .chat-row {
+    border: 1px solid rgba(130, 140, 160, 0.22) !important;
+    border-radius: 14px !important;
+    margin: 4px 8px !important;
+    transition: border-color 0.2s ease, background 0.2s ease !important;
+  }
+  .chatitem:hover, .chatitem.active,
+  .chat-row:hover, .chat-row.active {
+    border-color: var(--accent, #7c4dff) !important;
+  }
+</style>
 </head>
 <body>
+<div id="loomaSplash">
+  <div class="looma-splash-logo">L</div>
+  <div class="looma-splash-text">Загрузка Looma...</div>
+</div>
+
 <svg xmlns="http://w3.org" style="display:none" aria-hidden="true">
   <symbol id="icon-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
   <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></symbol>
@@ -56,7 +131,7 @@
   <main id="chatpane">
     <div id="welcome">
       <div class="ball"></div>
-      <p>Выберите чат, чтобы начать общение в Looma</p>
+      <p id="welcomeText">Выберите чат, чтобы начать общение в Looma</p>
     </div>
   </main>
 </div>
@@ -64,20 +139,24 @@
 <div id="overlay"></div>
 <div id="modalback"></div>
 
-<script src="js/utils/dom.js"></script>
-<script src="js/utils/format.js"></script>
-<script src="https://jsdelivr.net"></script>
-<script src="js/api.js"></script>
-<script src="js/data/stickers.js"></script>
-<script src="js/store.js"></script>
-<script src="js/components/auth.js"></script>
-<script src="js/components/newchat.js"></script>
-<script src="js/components/chatlist.js"></script>
-<script src="js/components/bubbles.js"></script>
-<script src="js/components/chatview.js"></script>
-<script src="js/components/inputbar.js"></script>
-<script src="js/components/infopanel.js"></script>
-<script src="js/components/settings.js"></script>
-<script src="js/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+  }
+</script>
+<script src="js/utils/dom.js?v=5"></script>
+<script src="js/utils/format.js?v=5"></script>
+<script src="js/api.js?v=5"></script>
+<script src="js/data/stickers.js?v=5"></script>
+<script src="js/store.js?v=5"></script>
+<script src="js/components/auth.js?v=5"></script>
+<script src="js/components/newchat.js?v=5"></script>
+<script src="js/components/chatlist.js?v=5"></script>
+<script src="js/components/bubbles.js?v=5"></script>
+<script src="js/components/chatview.js?v=5"></script>
+<script src="js/components/inputbar.js?v=5"></script>
+<script src="js/components/infopanel.js?v=5"></script>
+<script src="js/components/settings.js?v=5"></script>
+<script src="js/app.js?v=5"></script>
 </body>
 </html>
