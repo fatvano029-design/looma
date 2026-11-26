@@ -143,20 +143,37 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
   }
+  (function () {
+    const v = Date.now();
+    const files = [
+      'js/utils/dom.js',
+      'js/utils/format.js',
+      'js/api.js',
+      'js/data/stickers.js',
+      'js/store.js',
+      'js/components/auth.js',
+      'js/components/newchat.js',
+      'js/components/chatlist.js',
+      'js/components/bubbles.js',
+      'js/components/chatview.js',
+      'js/components/inputbar.js',
+      'js/components/infopanel.js',
+      'js/components/settings.js',
+      'js/app.js'
+    ];
+    function loadNext(i) {
+      if (i >= files.length) {
+        if (window.App && App.init && document.readyState !== 'loading') App.init();
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = files[i] + '?v=' + v;
+      s.onload = () => loadNext(i + 1);
+      s.onerror = () => loadNext(i + 1);
+      document.body.appendChild(s);
+    }
+    loadNext(0);
+  })();
 </script>
-<script src="js/utils/dom.js?v=5"></script>
-<script src="js/utils/format.js?v=5"></script>
-<script src="js/api.js?v=5"></script>
-<script src="js/data/stickers.js?v=5"></script>
-<script src="js/store.js?v=5"></script>
-<script src="js/components/auth.js?v=5"></script>
-<script src="js/components/newchat.js?v=5"></script>
-<script src="js/components/chatlist.js?v=5"></script>
-<script src="js/components/bubbles.js?v=5"></script>
-<script src="js/components/chatview.js?v=5"></script>
-<script src="js/components/inputbar.js?v=5"></script>
-<script src="js/components/infopanel.js?v=5"></script>
-<script src="js/components/settings.js?v=5"></script>
-<script src="js/app.js?v=5"></script>
 </body>
 </html>
