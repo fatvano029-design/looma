@@ -1,9 +1,9 @@
-/* ================= js/api.js — Looma Dedicated Server (Clean) ================= */
+/* ================= js/api.js — Looma Server (No Regex Safe Version) ================= */
 'use strict';
 window.App = window.App || {};
 
 App.api = (() => {
-  const PB_URL = 'https://sslip.io';
+  const PB_URL = 'https://' + '45.15.126.220.sslip.io';
   const COL_URL = PB_URL + '/api/collections/looma_kv/records';
   const KEY = 'tg_token';
   let token = null;
@@ -19,10 +19,16 @@ App.api = (() => {
   const getColor = s => COLORS[Math.abs(String(s).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % COLORS.length];
 
   function normPhone(p) {
-    let digits = String(p || '').replace(/\D/g, '');
+    const digits = String(p || '').split('').filter(ch => ch >= '0' && ch <= '9').join('');
     if (!digits) return '';
-    if (digits.length === 11 && digits.startsWith('8')) digits = '7' + digits.slice(1);
+    if (digits.length === 11 && digits.startsWith('8')) return '+7' + digits.slice(1);
     return '+' + digits;
+  }
+
+  function cleanUsername(u) {
+    let s = String(u || '').trim().toLowerCase();
+    while (s.startsWith('@')) s = s.slice(1);
+    return s;
   }
 
   function stampTime(m) {
@@ -170,7 +176,7 @@ App.api = (() => {
     if (method === 'POST' && path === '/auth/signup') {
       const data = typeof body === 'object' ? body : {};
       const name = String(data.name || '').trim();
-      const username = String(data.username || '').trim().replace(/^@+/, '').toLowerCase();
+      const username = cleanUsername(data.username);
       const contactRaw = String(data.contact || '').trim();
       const password = String(data.password || '').trim();
       const avatar = data.avatar || null;
@@ -219,7 +225,7 @@ App.api = (() => {
     if (method === 'POST' && path === '/auth/login') {
       const rawLogin = String(body.username || '').trim();
       const password = String(body.password || '').trim();
-      const qLower = rawLogin.replace(/^@+/, '').toLowerCase();
+      const qLower = cleanUsername(rawLogin);
       const qPhone = normPhone(rawLogin);
       const passHash = await sha256(password);
 
@@ -265,7 +271,7 @@ App.api = (() => {
         me.initials = me.name.slice(0, 2).toUpperCase();
       }
       if (body.username) {
-        const cleanU = String(body.username).trim().replace(/^@+/, '').toLowerCase();
+        const cleanU = cleanUsername(body.username);
         if (cleanU && !users.some(u => u.id !== me.id && u.username === cleanU)) me.username = cleanU;
       }
       if (body.bio !== undefined) me.bio = String(body.bio).trim();
@@ -276,7 +282,7 @@ App.api = (() => {
 
     if (method === 'GET' && path.startsWith('/users/search')) {
       const rawQ = decodeURIComponent(path.split('q=').at(1) || '').trim();
-      const qLower = rawQ.replace(/^@+/, '').toLowerCase();
+const qLower = cleanUsername(rawQ);
 const qPhone = normPhone(rawQ);
 const list = users
 .filter(u => u.id !== me.id && (
@@ -312,7 +318,7 @@ return { chats: formatted };
 }
 if (method === 'POST' && path === '/chats') {
 if (body.type === 'dm') {
-const target = users.find(u => u.username === String(body.username || '').toLowerCase() || u.id === body.userId);
+const target = users.find(u => u.username === cleanUsername(body.username) || u.id === body.userId);
 if (!target) throw new Error('Пользователь не найден');
 const existing = allChats.find(c => c.type === 'dm' && c.members.includes(me.id) && c.members.includes(target.id));
 if (existing) {
@@ -332,7 +338,7 @@ return { chat: formatChatForUser(dm, me.id, users, []) };
 if (body.type === 'group') {
 const gName = String(body.name || 'Новая группа').trim();
 const picked = (body.memberUsernames || [])
-.map(un => users.find(u => u.username === String(un).toLowerCase()))
+.map(un => users.find(u => u.username === cleanUsername(un)))
 .filter(Boolean)
 .map(u => u.id);
 const members = Array.from(new Set([me.id, ...picked]));
@@ -361,10 +367,11 @@ await putDoc(docKey, wrap.data);
 }
 return { ok: true };
 }
-const mChat = path.match(/^/chats/([^/]+)(/.*)?$/);
-if (mChat) {
-const chatId = mChat.at(1);
-const sub = mChat.at(2) || '';
+if (path.startsWith('/chats/')) {
+const parts = path.split('/');
+const chatId = parts.at(2);
+const rest = parts.slice(3).join('/');
+const sub = rest ? '/' + rest : '';
 const chat = allChats.find(c => c.id === chatId);
 if (!chat) throw new Error('Чат не найден');
 if (method === 'GET' && sub.startsWith('/messages')) {
