@@ -1,4 +1,4 @@
-/* ================= js/auth.js — Looma Auth (Connected to PocketBase + Smooth Boot) ================= */
+/* ================= js/components/auth.js — Looma Auth ================= */
 'use strict';
 window.App = window.App || {};
 
@@ -6,6 +6,11 @@ App.auth = (() => {
   const $ = id => document.getElementById(id);
   let mode = 'signup';
   let avatarData = null;
+
+  function hideSplash() {
+    const sp = $('loomaSplash');
+    if (sp) sp.classList.add('hide');
+  }
 
   function ensureOverlay() {
     let ov = $('authOverlay');
@@ -24,8 +29,8 @@ App.auth = (() => {
           <button id="tabLogin" type="button" style="border:none;border-radius:9px;padding:9px;font-weight:600;cursor:pointer;background:transparent;color:rgba(255,255,255,.6);">Вход</button>
         </div>
         <form id="authForm" style="display:flex;flex-direction:column;gap:11px;">
-          <input id="authName" type="text" placeholder="Ваше имя (например, Дима)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
-          <input id="authUser" type="text" placeholder="@username (например, @dima)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
+          <input id="authName" type="text" placeholder="Ваше имя (например, Иван)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
+          <input id="authUser" type="text" placeholder="@username (например, @ivan)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
           <input id="authContact" type="text" placeholder="Почта или телефон" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
           <input id="authPass" type="password" placeholder="Пароль (от 4 символов)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
           <div id="authErr" style="min-height:18px;font-size:13px;color:#ff5252;"></div>
@@ -37,7 +42,7 @@ App.auth = (() => {
 
     $('authAvPick').onclick = () => $('authAvFile').click();
     $('authAvFile').onchange = e => {
-      const f = e.target.files && e.target.files[0];
+      const f = e.target.files && e.target.files;
       if (!f) return;
       const r = new FileReader();
       r.onload = () => {
@@ -72,8 +77,7 @@ App.auth = (() => {
           await App.api.login($('authUser').value, $('authPass').value);
         }
         hide();
-        if (App.init) await App.init();
-        else location.reload();
+        await App.boot();
       } catch (err) {
         errEl.textContent = (err && err.message) ? err.message : 'Ошибка подключения к серверу';
       } finally {
@@ -93,7 +97,7 @@ App.auth = (() => {
       $('authSub').style.display = 'block';
       $('authName').style.display = 'block';
       $('authContact').style.display = 'block';
-      $('authUser').placeholder = '@username (например, @dima)';
+      $('authUser').placeholder = '@username (например, @ivan)';
       $('authSubmit').textContent = 'Создать аккаунт';
       $('tabSignup').style.background = '#6c47ff';
       $('tabSignup').style.color = '#fff';
@@ -114,23 +118,16 @@ App.auth = (() => {
   }
 
   function show(msg) {
+    hideSplash();
     const ov = ensureOverlay();
     ov.style.display = 'flex';
     if (msg && $('authErr')) $('authErr').textContent = msg;
   }
 
   function hide() {
+    hideSplash();
     const ov = $('authOverlay');
     if (ov) ov.style.display = 'none';
-  }
-
-  // Мгновенно показываем окно входа при открытии страницы, если токена нет (убирает мигание пустых чатов)
-  if (!localStorage.getItem('tg_token')) {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => show());
-    } else {
-      show();
-    }
   }
 
   return { show, hide, setMode };
