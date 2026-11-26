@@ -161,3 +161,106 @@ App.components.settings = (() => {
 
     $('logoutRow').addEventListener('click', () => {
       try {
+        Object.keys(localStorage).forEach(k => {
+if (k.startsWith('tg_') || k.startsWith('looma_profile')) localStorage.removeItem(k);
+});
+} catch (e) {}
+if (App.api && App.api.setToken) App.api.setToken(null);
+location.reload();
+});
+$('deleteAccRow').addEventListener('click', async () => {
+const ok = confirm(en ? 'Delete your account permanently?' : 'Точно удалить этот аккаунт навсегда? Номер и @username снова станут свободны.');
+if (!ok) return;
+try {
+if (App.api && App.api.deleteAccount) await App.api.deleteAccount();
+} catch (e) {}
+try {
+Object.keys(localStorage).forEach(k => {
+if (k.startsWith('tg_') || k.startsWith('looma_profile')) localStorage.removeItem(k);
+});
+} catch (e) {}
+location.reload();
+});
+$('setAvaBox').addEventListener('click', () => $('setAvaInput').click());
+$('setAvaInput').addEventListener('change', e => {
+const f = e.target.files.item(0);
+if (!f) return;
+compressAva(f, url => {
+saveExt({ avatar: url });
+if (App.me) App.me.avatar = url;
+if (App.api && App.api.updateProfile) App.api.updateProfile({ avatar: url }).catch(() => {});
+App.utils.toast(en ? 'Avatar updated' : 'Аватарка Looma обновлена');
+open();
+});
+});
+if ($('nameEdit')) {
+$('nameEdit').addEventListener('click', () => {
+isEditingProfile = true;
+open();
+setTimeout(() => { if ($('profilename')) $('profilename').focus(); }, 30);
+});
+}
+if (('cancelProfileBtn')) {('cancelProfileBtn').addEventListener('click', () => {
+isEditingProfile = false;
+open();
+});
+}
+if (('saveProfileBtn')) {('saveProfileBtn').addEventListener('click', () => {
+const name = $('profilename').value.trim() || 'Пользователь';
+const rawUser = $('profileUser').value.trim().replace(/^@+/, '');
+const bio = $('profileBio').value.trim();
+App.store.updateSettings({ profileName: name });
+saveExt({ username: rawUser ? '@' + rawUser : '', bio });
+if (App.me) {
+App.me.name = name;
+if (rawUser) App.me.username = rawUser;
+App.me.bio = bio;
+}
+if (App.api && App.api.updateProfile) {
+App.api.updateProfile({ name, username: rawUser, bio }).catch(() => {});
+}
+isEditingProfile = false;
+App.utils.toast(en ? 'Profile saved' : 'Профиль Looma сохранён');
+open();
+});
+}
+p.querySelectorAll('.toggle').forEach(t =>
+t.addEventListener('click', () => {
+const key = t.dataset.k;
+const on = !t.classList.contains('on');
+t.classList.toggle('on', on);
+t.setAttribute('aria-checked', on);
+if (key === 'darkTheme') {
+applyThemeMode(on);
+App.utils.toast(on ? (en ? 'Dark theme enabled' : 'Тёмная тема включена') : (en ? 'Light theme enabled' : 'Светлая тема включена'));
+return;
+}
+App.store.updateSettings({ [key]: on });
+App.utils.toast(label(key, en) + (on ? ': вкл' : ': выкл'));
+}));
+p.querySelectorAll('.swatch').forEach(sw =>
+sw.addEventListener('click', () => {
+App.store.updateSettings({ accent: sw.dataset.c });
+p.querySelectorAll('.swatch').forEach(x => x.classList.remove('on'));
+sw.classList.add('on');
+}));
+}
+function togRow(key, lab, desc, on) {
+return '' + esc(lab) +
+'' + esc(desc) + '' +
+'';
+}
+function label(k, en) {
+if (en) return { notifications: 'Notifications', sounds: 'Sounds', enterToSend: 'Send with Enter' }[k] || k;
+return { notifications: 'Уведомления', sounds: 'Звуки', enterToSend: 'Отправка по Enter' }[k] || k;
+}
+function close() {
+const p = $('chatpane');
+p.classList.remove('open');
+const en = getLang() === 'en';
+p.innerHTML =
+'' + icon('logo', 'lg') + '' +
+'' + (en ? 'Select a chat to start messaging in Looma' : 'Выберите чат, чтобы начать общение в Looma') + '';
+}
+return { open, close };
+})();
