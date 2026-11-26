@@ -1,4 +1,3 @@
-/* ================= js/api.js — Looma Dedicated Server (Channels + Delete Account) ================= */
 'use strict';
 window.App = window.App || {};
 
@@ -71,7 +70,7 @@ App.api = (() => {
   let _cache = null, _cacheTs = 0, _inFlight = null;
 
   async function pullAll(force) {
-    if (!force && _cache && Date.now() - _cacheTs < 700) return _cache;
+    if (!force && _cache && Date.now() - _cacheTs < 500) return _cache;
     if (_inFlight) return _inFlight;
     _inFlight = (async () => {
       try {
@@ -162,14 +161,17 @@ App.api = (() => {
     const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
     const lastRead = uState.lastRead || 0;
     const unreadCount = msgs.filter(m => m.senderId !== meId && (m.ts || 0) > lastRead).length;
+    const isSaved = chat.id.startsWith('c_saved_');
 
-    let title = chat.name || chat.title || 'Чат';
-    let initials = title.slice(0, 2).toUpperCase();
-    let color = getColor(chat.id);
+    let title = isSaved ? 'Избранное' : (chat.name || chat.title || 'Чат');
+    let initials = isSaved ? '★' : title.slice(0, 2).toUpperCase();
+    let color = isSaved ? '#448aff' : getColor(chat.id);
     let online = false;
-    let subtitle = chat.type === 'channel'
-      ? ((chat.members || []).length + ' подписч.')
-      : ((chat.members || []).length + ' участн.');
+    let subtitle = isSaved
+      ? 'Личные заметки и файлы'
+      : (chat.type === 'channel'
+        ? ((chat.members || []).length + ' подписч.')
+        : ((chat.members || []).length + ' участн.'));
 
     if (chat.type === 'dm') {
       const otherId = (chat.members || []).find(id => id !== meId) || meId;
@@ -190,7 +192,7 @@ App.api = (() => {
       color,
       online,
       subtitle,
-      pinned: !!uState.pinned,
+      pinned: isSaved ? true : !!uState.pinned,
       muted: !!uState.muted,
       unreadCount,
       lastMessage: lastMsg ? Object.assign({}, lastMsg) : null
@@ -236,6 +238,15 @@ App.api = (() => {
       });
       await putDoc('user__' + user.id, user);
       setToken(user.id);
+
+      const savedChat = {
+        id: 'c_saved_' + user.id,
+        type: 'group',
+        name: 'Избранное',
+        members: [user.id],
+        userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
+      };
+      await putDoc('chat__' + savedChat.id, savedChat);
       return { token: user.id, user };
     }
 
@@ -259,27 +270,36 @@ App.api = (() => {
       user.lastSeen = Date.now();
       await putDoc('user__' + user.id, user);
       setToken(user.id);
-      return { token: user.id, user };
-    }
 
-    const me = requireMe(users);
-    if (Date.now() - (me.lastSeen || 0) > 20000) {
-      me.lastSeen = Date.now();
-      putDoc('user__' + me.id, me).catch(() => {});
-    }
-
-    if (method === 'GET' && path === '/me') return { user: me, me };
-
-    if (method === 'POST' && path === '/me/delete') {
-      await delDoc('user__' + me.id);
-      setToken(null);
-      return { ok: true };
-    }
-
-    if (method === 'POST' && path === '/me/update') {
-      if (body.name) me.name = String(body.name).trim();
-      if (body.username) {
-        const cleanU = cleanUsername(body.username);
+      const allChats = await getChats();
+      if (!allChats.some(c => c.id === 'c_saved_' + user.id)) {
+        const savedChat = {
+          id: 'c_saved_' + user.id,
+          type: 'group',
+name: 'Избранное',
+members: [user.id],
+userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
+};
+await putDoc('chat__' + savedChat.id, savedChat);
+}
+return { token: user.id, user };
+}
+const me = requireMe(users);
+if (Date.now() - (me.lastSeen || 0) > 20000) {
+me.lastSeen = Date.now();
+putDoc('user__' + me.id, me).catch(() => {});
+}
+if (method === 'GET' && path === '/me') return { user: me, me };
+if (method === 'POST' && path === '/me/delete') {
+await delDoc('user__' + me.id);
+await delDoc('chat__c_saved_' + me.id);
+setToken(null);
+return { ok: true };
+}
+if (method === 'POST' && path === '/me/update') {
+if (body.name) me.name = String(body.name).trim();
+if (body.username) {
+const cleanU = cleanUsername(body.username);
 if (cleanU && !users.some(u => u.id !== me.id && u.username === cleanU)) me.username = cleanU;
 }
 if (body.bio !== undefined) me.bio = String(body.bio).trim();
@@ -384,6 +404,15 @@ const rest = parts.slice(3).join('/');
 const sub = rest ? '/' + rest : '';
 const chat = allChats.find(c => c.id === chatId);
 if (!chat) throw new Error('Чат не найден');
+if (method === 'POST' && sub === '/members') {
+const target = users.find(u => u.username === cleanUsername(body.username) || u.id === body.userId);
+if (!target) throw new Error('Пользователь не найден');
+if (!chat.members.includes(target.id)) {
+chat.members.push(target.id);
+await putDoc('chat__' + chatId, chat);
+}
+return { ok: true };
+}
 if (method === 'GET' && sub.startsWith('/messages')) {
 const after = Number(sub.split('after=').at(1) || 0);
 const msgs = (await getChatMsgs(chatId)).filter(m => !m.deleted && (m.ts || 0) > after);
@@ -441,8 +470,9 @@ color: u.color,
 online: Date.now() - (u.lastSeen || 0) < 45000
 }));
 const msgs = await getChatMsgs(chatId);
-const media = msgs.filter(m => !m.deleted && m.kind === 'image' && m.data).map(m => ({ id: m.id, data: m.data }));
-return { members, media };
+const media = msgs.filter(m => !m.deleted && (m.kind === 'image' || m.kind === 'video') && m.data).map(m => ({ id: m.id, kind: m.kind, data: m.data }));
+const files = msgs.filter(m => !m.deleted && m.kind === 'file').map(m => ({ id: m.id, fileName: m.fileName, fileSize: m.fileSize }));
+return { chat, members, media, files };
 }
 if (method === 'POST' && (sub === '/pin' || sub === '/mute')) {
 const field = sub === '/pin' ? 'pinned' : 'muted';
@@ -466,6 +496,7 @@ deleteAccount: () => req('POST', '/me/delete'),
 updateProfile: (patch) => req('POST', '/me/update', patch),
 chats: async () => ({ chats: (await req('GET', '/chats')).chats.map(normChat) }),
 createChat: async (payload) => ({ chat: normChat((await req('POST', '/chats', payload)).chat) }),
+addMember: (chatId, username) => req('POST', '/chats/' + chatId + '/members', { username }),
 messages: async (id, after) => {
 const d = await req('GET', '/chats/' + id + '/messages' + (after ? '?after=' + after : ''));
 const myId = token;
