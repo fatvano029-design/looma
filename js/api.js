@@ -1,83 +1,22 @@
-/* ================= js/api.js — Looma Decentralized Gun.js Backend ================= */
+/* ================= js/api.js — Looma Dedicated Server (Clean) ================= */
 'use strict';
 window.App = window.App || {};
 
 App.api = (() => {
-  const ROOM_NS = 'looma_net_v3_prod';
-  const PEERS = [
-    'https://herokuapp.com',
-    'https://wallie.io',
-    'https://ondigitalocean.app'
-  ];
-
-  const gun = window.Gun ? window.Gun({ peers: PEERS, localStorage: true }) : null;
-  const root = gun ? gun.get(ROOM_NS) : null;
-
+  const PB_URL = 'https://sslip.io';
+  const COL_URL = PB_URL + '/api/collections/looma_kv/records';
   const KEY = 'tg_token';
   let token = null;
   try { token = localStorage.getItem(KEY); } catch (e) {}
 
+  async function sha256(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
   const pad = n => String(n).padStart(2, '0');
   const COLORS = ['#7c4dff', '#00e5ff', '#00e676', '#ff5252', '#ffd740', '#e040fb', '#448aff'];
   const getColor = s => COLORS[Math.abs(String(s).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % COLORS.length];
-
-  const memUsers = {};
-  const memChats = {};
-  const memMsgs = {};
-  const memTyping = {};
-
-  function loadMirror() {
-    try {
-      const m = JSON.parse(localStorage.getItem('looma_gun_mirror') || '{}');
-      Object.assign(memUsers, m.users || {});
-      Object.assign(memChats, m.chats || {});
-      Object.assign(memMsgs, m.msgs || {});
-    } catch (e) {}
-  }
-
-  function saveMirror() {
-    try {
-      localStorage.setItem('looma_gun_mirror', JSON.stringify({
-        users: memUsers,
-        chats: memChats,
-        msgs: memMsgs
-      }));
-    } catch (e) {}
-  }
-
-  loadMirror();
-
-  if (root) {
-    root.get('users').map().on((val, key) => {
-      if (typeof val === 'string' && key) {
-        try { memUsers[key] = JSON.parse(val); saveMirror(); } catch (e) {}
-      }
-    });
-    root.get('chats').map().on((val, key) => {
-      if (typeof val === 'string' && key) {
-        try { memChats[key] = JSON.parse(val); saveMirror(); } catch (e) {}
-      }
-    });
-    root.get('msgs').map().on((val, key) => {
-      if (typeof val === 'string' && key) {
-        try { memMsgs[key] = JSON.parse(val); saveMirror(); } catch (e) {}
-      }
-    });
-    root.get('typing').map().on((val, key) => {
-      if (typeof val === 'string' && key) {
-        try { memTyping[key] = JSON.parse(val); } catch (e) {}
-      }
-    });
-  }
-
-  function putNode(branch, id, obj) {
-    if (branch === 'users') memUsers[id] = obj;
-    if (branch === 'chats') memChats[id] = obj;
-    if (branch === 'msgs') memMsgs[id] = obj;
-    if (branch === 'typing') memTyping[id] = obj;
-    if (branch !== 'typing') saveMirror();
-    if (root) root.get(branch).get(id).put(JSON.stringify(obj));
-  }
 
   function normPhone(p) {
     let digits = String(p || '').replace(/\D/g, '');
@@ -105,6 +44,86 @@ App.api = (() => {
       if (token) localStorage.setItem(KEY, token);
       else localStorage.removeItem(KEY);
     } catch (e) {}
+  }
+
+  let _cache = null, _cacheTs = 0, _inFlight = null;
+
+  async function pullAll(force) {
+    if (!force && _cache && Date.now() - _cacheTs < 700) return _cache;
+    if (_inFlight) return _inFlight;
+    _inFlight = (async () => {
+      try {
+        const res = await fetch(COL_URL + '?perPage=500&_t=' + Date.now());
+        if (!res.ok) throw new Error('Сервер отвечает кодом: ' + res.status);
+        const json = await res.json();
+        const map = {};
+        (json.items || []).forEach(item => {
+          if (item.k && item.v) {
+            try { map[item.k] = { recId: item.id, data: JSON.parse(item.v) }; } catch (e) {}
+          }
+        });
+        _cache = map;
+        _cacheTs = Date.now();
+        return map;
+      } finally {
+        _inFlight = null;
+      }
+    })();
+    return _inFlight;
+  }
+
+  async function putDoc(docKey, obj) {
+    if (!_cache) _cache = {};
+    const existing = _cache[docKey];
+    const payload = JSON.stringify({ k: docKey, v: JSON.stringify(obj) });
+    if (existing && existing.recId) {
+      const res = await fetch(COL_URL + '/' + existing.recId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload
+      });
+      if (!res.ok) throw new Error('Ошибка обновления: ' + res.status);
+      const saved = await res.json();
+      _cache[docKey] = { recId: saved.id, data: obj };
+    } else {
+      const res = await fetch(COL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload
+      });
+      if (!res.ok) throw new Error('Ошибка сохранения: ' + res.status);
+      const saved = await res.json();
+      _cache[docKey] = { recId: saved.id, data: obj };
+    }
+    return obj;
+  }
+
+  async function getUsers() {
+    const map = await pullAll(false);
+    return Object.entries(map).filter(([k]) => k.startsWith('user__')).map(([, v]) => v.data);
+  }
+
+  async function getChats() {
+    const map = await pullAll(false);
+    return Object.entries(map).filter(([k]) => k.startsWith('chat__')).map(([, v]) => v.data);
+  }
+
+  async function getChatMsgs(chatId) {
+    const map = await pullAll(false);
+    return Object.entries(map)
+      .filter(([k]) => k.startsWith('msg__' + chatId + '__'))
+      .map(([, v]) => v.data)
+      .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  }
+
+  function requireMe(users) {
+    const me = users.find(u => u.id === token);
+    if (!me) {
+      setToken(null);
+      if (App.auth) App.auth.show('Войдите в аккаунт Looma');
+      throw new Error('Unauthorized');
+    }
+    return me;
   }
 
   function formatChatForUser(chat, meId, users, msgs) {
@@ -145,7 +164,8 @@ App.api = (() => {
   }
 
   async function req(method, path, body) {
-    const users = Object.values(memUsers);
+    await pullAll(method !== 'GET');
+    const users = await getUsers();
 
     if (method === 'POST' && path === '/auth/signup') {
       const data = typeof body === 'object' ? body : {};
@@ -169,22 +189,20 @@ App.api = (() => {
       if (email && users.some(u => u.email === email)) throw new Error('Эта почта уже зарегистрирована');
       if (phone && users.some(u => u.phone === phone)) throw new Error('Этот номер телефона уже зарегистрирован');
 
-      const isOwner = username === 'loomaadmin' || email === 'fatvano029@gmail.com';
       const user = {
-        id: isOwner ? 'admin_looma' : ('u_' + Date.now() + '_' + Math.floor(Math.random() * 999)),
+        id: 'u_' + Date.now() + '_' + Math.floor(Math.random() * 999),
         username,
         name,
         email,
         phone,
-        password,
+        passwordHash: await sha256(password),
         bio: '',
         avatar,
         initials: name.slice(0, 2).toUpperCase(),
-        color: isOwner ? '#ffd740' : getColor(username),
-        isAdmin: isOwner,
+        color: getColor(username),
         lastSeen: Date.now()
       };
-      putNode('users', user.id, user);
+      await putDoc('user__' + user.id, user);
       setToken(user.id);
 
       const savedChat = {
@@ -194,7 +212,7 @@ App.api = (() => {
         members: [user.id],
         userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
       };
-      putNode('chats', savedChat.id, savedChat);
+      await putDoc('chat__' + savedChat.id, savedChat);
       return { token: user.id, user };
     }
 
@@ -203,39 +221,22 @@ App.api = (() => {
       const password = String(body.password || '').trim();
       const qLower = rawLogin.replace(/^@+/, '').toLowerCase();
       const qPhone = normPhone(rawLogin);
+      const passHash = await sha256(password);
 
-      let user = users.find(u =>
-        u.password === password && (
+      const user = users.find(u =>
+        u.passwordHash === passHash && (
           u.username === qLower ||
           (u.email && u.email === qLower) ||
           (u.phone && qPhone && u.phone === qPhone)
         )
       );
 
-      if (!user && (qLower === 'loomaadmin' || qLower === 'fatvano029@gmail.com' || qPhone === '+79910443406') && password === '&!LoOmaAdMin!&') {
-        user = {
-          id: 'admin_looma',
-          username: 'loomaadmin',
-          name: 'LoomaAdmin',
-          email: 'fatvano029@gmail.com',
-          phone: '+79910443406',
-          password: '&!LoOmaAdMin!&',
-          bio: 'Создатель Looma',
-          avatar: null,
-          initials: 'LA',
-          color: '#ffd740',
-          isAdmin: true,
-          lastSeen: Date.now()
-        };
-        putNode('users', user.id, user);
-      }
-
       if (!user) throw new Error('Аккаунт не найден или неверный пароль');
       user.lastSeen = Date.now();
-      putNode('users', user.id, user);
+      await putDoc('user__' + user.id, user);
       setToken(user.id);
 
-      const allChats = Object.values(memChats);
+      const allChats = await getChats();
       if (!allChats.some(c => (c.members || []).includes(user.id))) {
         const savedChat = {
           id: 'c_saved_' + user.id,
@@ -244,22 +245,16 @@ App.api = (() => {
           members: [user.id],
           userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
         };
-        putNode('chats', savedChat.id, savedChat);
+        await putDoc('chat__' + savedChat.id, savedChat);
       }
 
       return { token: user.id, user };
     }
 
-    const me = users.find(u => u.id === token);
-    if (!me) {
-      setToken(null);
-      if (App.auth) App.auth.show('Войдите в аккаунт Looma');
-      throw new Error('Unauthorized');
-    }
-
+    const me = requireMe(users);
     if (Date.now() - (me.lastSeen || 0) > 20000) {
       me.lastSeen = Date.now();
-      putNode('users', me.id, me);
+      putDoc('user__' + me.id, me).catch(() => {});
     }
 
     if (method === 'GET' && path === '/me') return { user: me };
@@ -275,17 +270,17 @@ App.api = (() => {
       }
       if (body.bio !== undefined) me.bio = String(body.bio).trim();
       if (body.avatar !== undefined) me.avatar = body.avatar;
-      putNode('users', me.id, me);
+      await putDoc('user__' + me.id, me);
       return { user: me };
     }
 
     if (method === 'GET' && path.startsWith('/users/search')) {
       const rawQ = decodeURIComponent(path.split('q=').at(1) || '').trim();
       const qLower = rawQ.replace(/^@+/, '').toLowerCase();
-      const qPhone = normPhone(rawQ);
-      const list = users
-        .filter(u => u.id !== me.id && (
-          !qLower ||
+const qPhone = normPhone(rawQ);
+const list = users
+.filter(u => u.id !== me.id && (
+!qLower ||
 u.username.includes(qLower) ||
 (u.name || '').toLowerCase().includes(qLower) ||
 (u.phone && qPhone && u.phone === qPhone)
@@ -300,14 +295,13 @@ online: Date.now() - (u.lastSeen || 0) < 45000
 }));
 return { users: list };
 }
-const allChats = Object.values(memChats);
-const allMsgs = Object.values(memMsgs);
+const allChats = await getChats();
 if (method === 'GET' && path === '/chats') {
 const myChats = allChats.filter(c => (c.members || []).includes(me.id));
-const formatted = myChats.map(c => {
-const msgs = allMsgs.filter(m => m.chatId === c.id && !m.deleted).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+const formatted = await Promise.all(myChats.map(async c => {
+const msgs = await getChatMsgs(c.id);
 return formatChatForUser(c, me.id, users, msgs);
-});
+}));
 formatted.sort((a, b) => {
 if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
 const ta = a.lastMessage ? a.lastMessage.ts : 0;
@@ -322,7 +316,7 @@ const target = users.find(u => u.username === String(body.username || '').toLowe
 if (!target) throw new Error('Пользователь не найден');
 const existing = allChats.find(c => c.type === 'dm' && c.members.includes(me.id) && c.members.includes(target.id));
 if (existing) {
-const msgs = allMsgs.filter(m => m.chatId === existing.id && !m.deleted).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+const msgs = await getChatMsgs(existing.id);
 return { chat: formatChatForUser(existing, me.id, users, msgs) };
 }
 const dm = {
@@ -332,7 +326,7 @@ name: '',
 members: [me.id, target.id],
 userState: { [me.id]: { lastRead: Date.now() }, [target.id]: { lastRead: 0 } }
 };
-putNode('chats', dm.id, dm);
+await putDoc('chat__' + dm.id, dm);
 return { chat: formatChatForUser(dm, me.id, users, []) };
 }
 if (body.type === 'group') {
@@ -349,19 +343,21 @@ name: gName,
 members,
 userState: { [me.id]: { lastRead: Date.now() } }
 };
-putNode('chats', grp.id, grp);
+await putDoc('chat__' + grp.id, grp);
 return { chat: formatChatForUser(grp, me.id, users, []) };
 }
 }
 if (method === 'POST' && path.startsWith('/messages/') && path.endsWith('/delete')) {
 const mid = path.split('/').at(2);
-const msgObj = memMsgs[mid];
-if (msgObj) {
-msgObj.deleted = true;
-msgObj.text = 'Сообщение удалено';
-msgObj.kind = 'text';
-delete msgObj.data;
-putNode('msgs', mid, msgObj);
+const map = await pullAll(false);
+const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.data && v.data.id === mid);
+if (entry) {
+const [docKey, wrap] = entry;
+wrap.data.deleted = true;
+wrap.data.text = 'Сообщение удалено';
+wrap.data.kind = 'text';
+delete wrap.data.data;
+await putDoc(docKey, wrap.data);
 }
 return { ok: true };
 }
@@ -369,13 +365,11 @@ const mChat = path.match(/^/chats/([^/]+)(/.*)?$/);
 if (mChat) {
 const chatId = mChat.at(1);
 const sub = mChat.at(2) || '';
-const chat = memChats[chatId];
+const chat = allChats.find(c => c.id === chatId);
 if (!chat) throw new Error('Чат не найден');
 if (method === 'GET' && sub.startsWith('/messages')) {
 const after = Number(sub.split('after=').at(1) || 0);
-const msgs = allMsgs
-.filter(m => m.chatId === chatId && !m.deleted && (m.ts || 0) > after)
-.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+const msgs = (await getChatMsgs(chatId)).filter(m => !m.deleted && (m.ts || 0) > after);
 return { messages: msgs, now: Date.now() };
 }
 if (method === 'POST' && sub === '/messages') {
@@ -397,23 +391,24 @@ duration: body.duration || null,
 replyTo: body.replyTo || null,
 status: 'read'
 };
-putNode('msgs', msg.id, msg);
+await putDoc('msg__' + chatId + '__' + msg.id, msg);
 return { message: msg };
 }
 if (method === 'POST' && sub === '/read') {
 chat.userState = chat.userState || {};
 chat.userState[me.id] = Object.assign({}, chat.userState[me.id], { lastRead: Date.now() });
-putNode('chats', chatId, chat);
+await putDoc('chat__' + chatId, chat);
 return { ok: true };
 }
 if (method === 'POST' && sub === '/typing') {
-putNode('typing', chatId + '_' + me.id, { chatId, userId: me.id, name: me.name, ts: Date.now() });
+await putDoc('typing__' + chatId + '__' + me.id, { userId: me.id, name: me.name, ts: Date.now() });
 return { ok: true };
 }
 if (method === 'GET' && sub === '/typing') {
-const activeTypers = Object.values(memTyping)
-.filter(v => v && v.chatId === chatId && v.userId !== me.id && Date.now() - (v.ts || 0) < 4000)
-.map(v => v.name);
+const map = await pullAll(false);
+const activeTypers = Object.entries(map)
+.filter(([k, v]) => k.startsWith('typing__' + chatId + '__') && v && v.data && v.data.userId !== me.id && Date.now() - (v.data.ts || 0) < 4000)
+.map(([, v]) => v.data.name);
 return { typing: activeTypers };
 }
 if (method === 'GET' && sub === '/info') {
@@ -428,9 +423,8 @@ initials: u.initials,
 color: u.color,
 online: Date.now() - (u.lastSeen || 0) < 45000
 }));
-const media = allMsgs
-.filter(m => m.chatId === chatId && !m.deleted && m.kind === 'image' && m.data)
-.map(m => ({ id: m.id, data: m.data }));
+const msgs = await getChatMsgs(chatId);
+const media = msgs.filter(m => !m.deleted && m.kind === 'image' && m.data).map(m => ({ id: m.id, data: m.data }));
 return { members, media };
 }
 if (method === 'POST' && (sub === '/pin' || sub === '/mute')) {
@@ -439,7 +433,7 @@ chat.userState = chat.userState || {};
 const cur = chat.userState[me.id] || {};
 cur[field] = !cur[field];
 chat.userState[me.id] = cur;
-putNode('chats', chatId, chat);
+await putDoc('chat__' + chatId, chat);
 return { [field]: cur[field] };
 }
 }
