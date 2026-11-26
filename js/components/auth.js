@@ -1,4 +1,3 @@
-/* ================= js/components/auth.js — Looma Auth ================= */
 'use strict';
 window.App = window.App || {};
 
@@ -30,8 +29,8 @@ App.auth = (() => {
         </div>
         <form id="authForm" style="display:flex;flex-direction:column;gap:11px;">
           <input id="authName" type="text" placeholder="Ваше имя (например, Иван)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
-          <input id="authUser" type="text" placeholder="@username (например, @ivan)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
-          <input id="authContact" type="text" placeholder="Почта или телефон" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
+          <input id="authUser" type="text" placeholder="@username (ставится автоматически)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
+          <input id="authContact" type="text" placeholder="+79991234567 или почта" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
           <input id="authPass" type="password" placeholder="Пароль (от 4 символов)" style="width:100%;box-sizing:border-box;background:#0f111a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px 14px;color:#fff;font-size:14px;outline:none;">
           <div id="authErr" style="min-height:18px;font-size:13px;color:#ff5252;"></div>
           <button id="authSubmit" type="submit" style="border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(90deg,#6c47ff,#00d2ff);box-shadow:0 8px 20px rgba(108,71,255,.35);">Создать аккаунт</button>
@@ -39,6 +38,34 @@ App.auth = (() => {
       </div>
     `;
     document.body.appendChild(ov);
+
+    // Автоматическая @ в поле username
+    $('authUser').addEventListener('input', e => {
+      const val = e.target.value;
+      if (!val) return;
+      if (mode === 'signup') {
+        const clean = val.replace(/^@+/, '');
+        e.target.value = clean ? '@' + clean : '';
+      } else {
+        const first = val.charAt(0);
+        const isDigit = first >= '0' && first <= '9';
+        if (!isDigit && !val.includes('@') && !val.startsWith('+')) {
+          e.target.value = '@' + val;
+        } else if (isDigit) {
+          e.target.value = '+' + val;
+        }
+      }
+    });
+
+    // Автоматический + при вводе номера телефона
+    $('authContact').addEventListener('input', e => {
+      const val = e.target.value;
+      if (!val) return;
+      const first = val.charAt(0);
+      if (first >= '0' && first <= '9' && !val.includes('@')) {
+        e.target.value = '+' + val;
+      }
+    });
 
     $('authAvPick').onclick = () => $('authAvFile').click();
     $('authAvFile').onchange = e => {
@@ -97,7 +124,7 @@ App.auth = (() => {
       $('authSub').style.display = 'block';
       $('authName').style.display = 'block';
       $('authContact').style.display = 'block';
-      $('authUser').placeholder = '@username (например, @ivan)';
+      $('authUser').placeholder = '@username (ставится автоматически)';
       $('authSubmit').textContent = 'Создать аккаунт';
       $('tabSignup').style.background = '#6c47ff';
       $('tabSignup').style.color = '#fff';
@@ -108,7 +135,7 @@ App.auth = (() => {
       $('authSub').style.display = 'none';
       $('authName').style.display = 'none';
       $('authContact').style.display = 'none';
-      $('authUser').placeholder = '@username, почта или телефон';
+      $('authUser').placeholder = '+7999..., почта или @username';
       $('authSubmit').textContent = 'Войти';
       $('tabLogin').style.background = '#6c47ff';
       $('tabLogin').style.color = '#fff';
