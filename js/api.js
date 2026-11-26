@@ -1,4 +1,4 @@
-/* ================= js/api.js — Looma Server (No Regex Safe Version) ================= */
+/* ================= js/api.js — Looma Dedicated Server (Channels + Delete Account) ================= */
 'use strict';
 window.App = window.App || {};
 
@@ -21,6 +21,7 @@ App.api = (() => {
   function normPhone(p) {
     const digits = String(p || '').split('').filter(ch => ch >= '0' && ch <= '9').join('');
     if (!digits) return '';
+    if (digits.length === 10 && digits.startsWith('9')) return '+7' + digits;
     if (digits.length === 11 && digits.startsWith('8')) return '+7' + digits.slice(1);
     return '+' + digits;
   }
@@ -29,6 +30,21 @@ App.api = (() => {
     let s = String(u || '').trim().toLowerCase();
     while (s.startsWith('@')) s = s.slice(1);
     return s;
+  }
+
+  function enrichUser(u) {
+    if (!u) return u;
+    const displayName = u.name || u.fullName || u.username || 'Пользователь';
+    const uname = cleanUsername(u.username || 'user');
+    return Object.assign({}, u, {
+      name: displayName,
+      fullName: displayName,
+      displayName: displayName,
+      username: uname,
+      handle: '@' + uname,
+      initials: displayName.slice(0, 2).toUpperCase(),
+      color: u.color || getColor(uname)
+    });
   }
 
   function stampTime(m) {
@@ -104,9 +120,18 @@ App.api = (() => {
     return obj;
   }
 
+  async function delDoc(docKey) {
+    const map = await pullAll(true);
+    const existing = map[docKey];
+    if (existing && existing.recId) {
+      await fetch(COL_URL + '/' + existing.recId, { method: 'DELETE' }).catch(() => {});
+      delete map[docKey];
+    }
+  }
+
   async function getUsers() {
     const map = await pullAll(false);
-    return Object.entries(map).filter(([k]) => k.startsWith('user__')).map(([, v]) => v.data);
+    return Object.entries(map).filter(([k]) => k.startsWith('user__')).map(([, v]) => enrichUser(v.data));
   }
 
   async function getChats() {
@@ -129,7 +154,7 @@ App.api = (() => {
       if (App.auth) App.auth.show('Войдите в аккаунт Looma');
       throw new Error('Unauthorized');
     }
-    return me;
+    return enrichUser(me);
   }
 
   function formatChatForUser(chat, meId, users, msgs) {
@@ -138,11 +163,13 @@ App.api = (() => {
     const lastRead = uState.lastRead || 0;
     const unreadCount = msgs.filter(m => m.senderId !== meId && (m.ts || 0) > lastRead).length;
 
-    let title = chat.name || 'Чат';
+    let title = chat.name || chat.title || 'Чат';
     let initials = title.slice(0, 2).toUpperCase();
     let color = getColor(chat.id);
     let online = false;
-    let subtitle = (chat.members || []).length + ' участн.';
+    let subtitle = chat.type === 'channel'
+      ? ((chat.members || []).length + ' подписч.')
+      : ((chat.members || []).length + ' участн.');
 
     if (chat.type === 'dm') {
       const otherId = (chat.members || []).find(id => id !== meId) || meId;
@@ -157,6 +184,7 @@ App.api = (() => {
     return normChat({
       id: chat.id,
       type: chat.type,
+      name: title,
       title,
       initials,
       color,
@@ -190,12 +218,12 @@ App.api = (() => {
       const email = isEmail ? contactRaw.toLowerCase() : '';
       const phone = !isEmail ? normPhone(contactRaw) : '';
 
-      if (!email && (!phone || phone.length < 8)) throw new Error('Введите корректный телефон или почту');
+      if (!email && (!phone || phone.length < 10)) throw new Error('Введите корректный номер телефона или почту');
       if (users.some(u => u.username === username)) throw new Error('Этот @username уже занят');
       if (email && users.some(u => u.email === email)) throw new Error('Эта почта уже зарегистрирована');
       if (phone && users.some(u => u.phone === phone)) throw new Error('Этот номер телефона уже зарегистрирован');
 
-      const user = {
+      const user = enrichUser({
         id: 'u_' + Date.now() + '_' + Math.floor(Math.random() * 999),
         username,
         name,
@@ -204,21 +232,10 @@ App.api = (() => {
         passwordHash: await sha256(password),
         bio: '',
         avatar,
-        initials: name.slice(0, 2).toUpperCase(),
-        color: getColor(username),
         lastSeen: Date.now()
-      };
+      });
       await putDoc('user__' + user.id, user);
       setToken(user.id);
-
-      const savedChat = {
-        id: 'c_saved_' + user.id,
-        type: 'group',
-        name: 'Избранное',
-        members: [user.id],
-        userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
-      };
-      await putDoc('chat__' + savedChat.id, savedChat);
       return { token: user.id, user };
     }
 
@@ -229,7 +246,7 @@ App.api = (() => {
       const qPhone = normPhone(rawLogin);
       const passHash = await sha256(password);
 
-      const user = users.find(u =>
+      const found = users.find(u =>
         u.passwordHash === passHash && (
           u.username === qLower ||
           (u.email && u.email === qLower) ||
@@ -237,23 +254,11 @@ App.api = (() => {
         )
       );
 
-      if (!user) throw new Error('Аккаунт не найден или неверный пароль');
+      if (!found) throw new Error('Аккаунт не найден или неверный пароль');
+      const user = enrichUser(found);
       user.lastSeen = Date.now();
       await putDoc('user__' + user.id, user);
       setToken(user.id);
-
-      const allChats = await getChats();
-      if (!allChats.some(c => (c.members || []).includes(user.id))) {
-        const savedChat = {
-          id: 'c_saved_' + user.id,
-          type: 'group',
-          name: 'Избранное',
-          members: [user.id],
-          userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
-        };
-        await putDoc('chat__' + savedChat.id, savedChat);
-      }
-
       return { token: user.id, user };
     }
 
@@ -263,25 +268,28 @@ App.api = (() => {
       putDoc('user__' + me.id, me).catch(() => {});
     }
 
-    if (method === 'GET' && path === '/me') return { user: me };
+    if (method === 'GET' && path === '/me') return { user: me, me };
 
-    if (method === 'POST' && path === '/me/update') {
-      if (body.name) {
-        me.name = String(body.name).trim();
-        me.initials = me.name.slice(0, 2).toUpperCase();
-      }
-      if (body.username) {
-        const cleanU = cleanUsername(body.username);
-        if (cleanU && !users.some(u => u.id !== me.id && u.username === cleanU)) me.username = cleanU;
-      }
-      if (body.bio !== undefined) me.bio = String(body.bio).trim();
-      if (body.avatar !== undefined) me.avatar = body.avatar;
-      await putDoc('user__' + me.id, me);
-      return { user: me };
+    if (method === 'POST' && path === '/me/delete') {
+      await delDoc('user__' + me.id);
+      setToken(null);
+      return { ok: true };
     }
 
-    if (method === 'GET' && path.startsWith('/users/search')) {
-      const rawQ = decodeURIComponent(path.split('q=').at(1) || '').trim();
+    if (method === 'POST' && path === '/me/update') {
+      if (body.name) me.name = String(body.name).trim();
+      if (body.username) {
+        const cleanU = cleanUsername(body.username);
+if (cleanU && !users.some(u => u.id !== me.id && u.username === cleanU)) me.username = cleanU;
+}
+if (body.bio !== undefined) me.bio = String(body.bio).trim();
+if (body.avatar !== undefined) me.avatar = body.avatar;
+const updated = enrichUser(me);
+await putDoc('user__' + updated.id, updated);
+return { user: updated };
+}
+if (method === 'GET' && path.startsWith('/users/search')) {
+const rawQ = decodeURIComponent(path.split('q=').at(1) || '').trim();
 const qLower = cleanUsername(rawQ);
 const qPhone = normPhone(rawQ);
 const list = users
@@ -335,17 +343,19 @@ userState: { [me.id]: { lastRead: Date.now() }, [target.id]: { lastRead: 0 } }
 await putDoc('chat__' + dm.id, dm);
 return { chat: formatChatForUser(dm, me.id, users, []) };
 }
-if (body.type === 'group') {
-const gName = String(body.name || 'Новая группа').trim();
+if (body.type === 'group' || body.type === 'channel') {
+const isChan = body.type === 'channel';
+const gName = String(body.name || (isChan ? 'Новый канал' : 'Новая группа')).trim();
 const picked = (body.memberUsernames || [])
 .map(un => users.find(u => u.username === cleanUsername(un)))
 .filter(Boolean)
 .map(u => u.id);
 const members = Array.from(new Set([me.id, ...picked]));
 const grp = {
-id: 'c_grp_' + Date.now(),
-type: 'group',
+id: (isChan ? 'c_chn_' : 'c_grp_') + Date.now(),
+type: isChan ? 'channel' : 'group',
 name: gName,
+ownerId: me.id,
 members,
 userState: { [me.id]: { lastRead: Date.now() } }
 };
@@ -452,6 +462,7 @@ setToken,
 signup: (payload) => req('POST', '/auth/signup', payload),
 login: (username, password) => req('POST', '/auth/login', { username, password }),
 me: () => req('GET', '/me'),
+deleteAccount: () => req('POST', '/me/delete'),
 updateProfile: (patch) => req('POST', '/me/update', patch),
 chats: async () => ({ chats: (await req('GET', '/chats')).chats.map(normChat) }),
 createChat: async (payload) => ({ chat: normChat((await req('POST', '/chats', payload)).chat) }),
