@@ -161,7 +161,7 @@ App.components.settings = (() => {
 
     $('logoutRow').addEventListener('click', () => {
       try {
-        Object.keys(localStorage).forEach(k => {
+Object.keys(localStorage).forEach(k => {
 if (k.startsWith('tg_') || k.startsWith('looma_profile')) localStorage.removeItem(k);
 });
 } catch (e) {}
@@ -200,12 +200,14 @@ open();
 setTimeout(() => { if ($('profilename')) $('profilename').focus(); }, 30);
 });
 }
-if (('cancelProfileBtn')) {('cancelProfileBtn').addEventListener('click', () => {
+if ($('cancelProfileBtn')) {
+$('cancelProfileBtn').addEventListener('click', () => {
 isEditingProfile = false;
 open();
 });
 }
-if (('saveProfileBtn')) {('saveProfileBtn').addEventListener('click', () => {
+if ($('saveProfileBtn')) {
+$('saveProfileBtn').addEventListener('click', () => {
 const name = $('profilename').value.trim() || 'Пользователь';
 const rawUser = $('profileUser').value.trim().replace(/^@+/, '');
 const bio = $('profileBio').value.trim();
