@@ -1,4 +1,4 @@
-/* ================= components/settings.js — Looma Settings + Delete Account ================= */
+/* ================= components/settings.js — Looma Clean Settings + Toggles ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
@@ -75,7 +75,7 @@ App.components.settings = (() => {
     if (!p) return;
     p.classList.add('open');
 
-    const realName = (App.me && App.me.name) ? App.me.name : (s.profileName || 'Пользователь');
+    const realName = (App.me && App.me.name) ? App.me.name : (s.profileName && s.profileName !== 'Looma User' ? s.profileName : 'Пользователь');
     const realUser = (App.me && App.me.username) ? ('@' + App.me.username) : (ext.username || '@user');
     const realBio = (App.me && App.me.bio !== undefined) ? App.me.bio : (ext.bio || '');
     const realAva = (App.me && App.me.avatar) ? App.me.avatar : ext.avatar;
@@ -85,10 +85,10 @@ App.components.settings = (() => {
       : 'background:linear-gradient(135deg,#00e676,#7c4dff);color:#fff;';
 
     const profileBlock = isEditingProfile
-      ? '<div class="srow" style="flex-direction:column;align-items:stretch;gap:10px;padding-top:4px;">' +
-          '<input id="profilename" value="' + esc(realName) + '" placeholder="' + (en ? 'Your name' : 'Ваше имя') + '" maxlength="40" style="padding:10px 12px;">' +
-          '<input id="profileUser" value="' + esc(realUser) + '" placeholder="@username" maxlength="32" style="padding:10px 12px;">' +
-          '<input id="profileBio" value="' + esc(realBio) + '" placeholder="' + (en ? 'Bio' : 'О себе (описание профиля)') + '" maxlength="120" style="padding:10px 12px;">' +
+      ? '<div style="display:flex;flex-direction:column;gap:10px;padding-top:12px;">' +
+          '<input id="profilename" value="' + esc(realName) + '" placeholder="' + (en ? 'Your name' : 'Ваше имя') + '" maxlength="40" style="padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:inherit;">' +
+          '<input id="profileUser" value="' + esc(realUser) + '" placeholder="@username" maxlength="32" style="padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:inherit;">' +
+          '<input id="profileBio" value="' + esc(realBio) + '" placeholder="' + (en ? 'Bio' : 'О себе') + '" maxlength="120" style="padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:inherit;">' +
           '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
             '<button type="button" id="cancelProfileBtn" style="padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--grey);cursor:pointer;font-weight:600;">' + (en ? 'Cancel' : 'Отмена') + '</button>' +
             '<button type="button" id="saveProfileBtn" style="padding:8px 16px;border-radius:10px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-weight:700;">' + (en ? 'Save' : 'Сохранить') + '</button>' +
@@ -107,8 +107,8 @@ App.components.settings = (() => {
       '<h2>' + (en ? 'Looma Settings' : 'Настройки Looma') + '</h2></div>' +
       '<div class="sbody">' +
         '<div class="scard">' +
-          '<div class="srow">' +
-            '<div class="avatar g2 a60" id="setAvaBox" title="' + (en ? 'Click to upload photo' : 'Нажмите, чтобы загрузить фото') + '" style="cursor:pointer;' + avaStyle + '">' + App.utils.initials(realName) + '</div>' +
+          '<div style="display:flex;align-items:center;gap:14px;">' +
+            '<div class="avatar g2 a60" id="setAvaBox" title="' + (en ? 'Click to upload photo' : 'Нажмите, чтобы загрузить фото') + '" style="cursor:pointer;flex-shrink:0;' + avaStyle + '">' + App.utils.initials(realName) + '</div>' +
             '<input type="file" id="setAvaInput" accept="image/*" style="display:none">' +
             (isEditingProfile
               ? '<div style="flex:1;min-width:0"><div style="font-weight:700;">' + (en ? 'Edit Profile' : 'Редактирование профиля') + '</div><div class="desc">' + (en ? 'Update name, tag or bio below' : 'Измените имя, тег или описание ниже') + '</div></div>'
@@ -116,12 +116,12 @@ App.components.settings = (() => {
           '</div>' +
           (isEditingProfile ? profileBlock : '') +
         '</div>' +
-        '<div class="scard">' +
-          '<div class="srow">' +
-            '<div class="lab">' + (en ? 'Language' : 'Язык интерфейса') +
-              '<div class="desc">' + (en ? 'Choose Looma display language' : 'Выберите язык отображения Looma') + '</div>' +
-            '</div>' +
-            '<div style="display:flex;gap:6px;">' +
+
+        '<div class="scard" style="display:flex;flex-direction:column;gap:14px;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">' +
+            '<div><div style="font-weight:600;font-size:14px;">' + (en ? 'Language' : 'Язык интерфейса') + '</div>' +
+              '<div class="desc">' + (en ? 'Choose Looma display language' : 'Выберите язык отображения Looma') + '</div></div>' +
+            '<div style="display:flex;gap:6px;flex-shrink:0;">' +
               '<button type="button" class="lang-btn" data-lang="ru" style="padding:6px 12px;border-radius:10px;border:1px solid var(--border);cursor:pointer;font-weight:700;background:' + (!en ? 'var(--accent)' : 'transparent') + ';color:' + (!en ? '#fff' : 'var(--text)') + ';">Русский</button>' +
               '<button type="button" class="lang-btn" data-lang="en" style="padding:6px 12px;border-radius:10px;border:1px solid var(--border);cursor:pointer;font-weight:700;background:' + (en ? 'var(--accent)' : 'transparent') + ';color:' + (en ? '#fff' : 'var(--text)') + ';">English</button>' +
             '</div>' +
@@ -131,36 +131,39 @@ App.components.settings = (() => {
           togRow('sounds', en ? 'Message sounds' : 'Звуки сообщений', en ? 'Play sound on incoming messages' : 'Воспроизводить звук при новых сообщениях', s.sounds) +
           togRow('enterToSend', en ? 'Send with Enter' : 'Отправка по Enter', en ? 'Enter — send, Shift+Enter — new line' : 'Enter — отправить, Shift+Enter — новая строка', s.enterToSend) +
         '</div>' +
-        '<div class="scard"><div class="srow"><div class="lab">' + (en ? 'Accent color' : 'Цвет акцента') +
-          '<div class="desc">' + (en ? 'Applied to buttons, links and highlights' : 'Применяется к кнопкам, ссылкам и выделениям') + '</div></div></div>' +
-          '<div class="srow"><div class="swatchrow">' +
+
+        '<div class="scard"><div style="margin-bottom:10px;"><div style="font-weight:600;font-size:14px;">' + (en ? 'Accent color' : 'Цвет акцента') + '</div>' +
+          '<div class="desc">' + (en ? 'Applied to buttons, links and highlights' : 'Применяется к кнопкам, ссылкам и выделениям') + '</div></div>' +
+          '<div class="swatchrow">' +
           ACCENTS.map(c =>
             '<div class="swatch' + (s.accent === c ? ' on' : '') + '" data-c="' + c +
             '" style="background:' + c + '" title="' + c + '"></div>').join('') +
-          '</div></div></div>' +
-        '<div class="scard">' +
-          '<div class="srow danger-row" id="logoutRow" style="cursor:pointer;"><div class="lab">' + (en ? 'Log out' : 'Выйти из аккаунта') +
-            '<div class="desc">' + (en ? 'Sign out and open login / signup screen' : 'Выйти и открыть окно входа / регистрации Looma') + '</div></div>' +
-            icon('back') + '</div>' +
-          '<div class="srow danger-row" id="deleteAccRow" style="cursor:pointer;color:#ff5252;border-top:1px solid var(--border);"><div class="lab" style="color:#ff5252;">' + (en ? 'Delete account' : 'Удалить аккаунт') +
-            '<div class="desc">' + (en ? 'Permanently delete this account from server' : 'Навсегда удалить этот аккаунт с сервера') + '</div></div>' +
-            icon('close') + '</div>' +
-        '</div>' +
-      '</div></div>';
+          '</div></div>' +
 
-    $('setBack').addEventListener('click', () => { isEditingProfile = false; close(); });
-
-    p.querySelectorAll('.lang-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const nextLang = btn.dataset.lang;
-        setLang(nextLang);
-        App.utils.toast(nextLang === 'en' ? 'Language: English' : 'Язык: Русский');
-        open();
-      });
-    });
-
-    $('logoutRow').addEventListener('click', () => {
-      try {
+        '<div class="scard" style="display:flex;flex-direction:column;gap:12px;">' +
+          '<div id="logoutRow" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:4px 0;">' +
+            '<div><div style="font-weight:600;font-size:14px;">' + (en ? 'Log out' : 'Выйти из аккаунта') + '</div>' +
+            '<div class="desc">' + (en ? 'Sign out and open login screen' : 'Выйти и открыть окно входа / регистрации Looma') + '</div></div>' +
+            icon('back') +
+          '</div>' +
+          '<div id="deleteAccRow" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding-top:12px;border-top:1px solid var(--border);color:#ff5252;">' +
+'' + (en ? 'Delete account' : 'Удалить аккаунт') + '' +
+'' + (en ? 'Permanently delete this account from server' : 'Навсегда удалить этот аккаунт с сервера') + '' +
+icon('close') +
+'' +
+'' +
+'';
+$('setBack').addEventListener('click', () => { isEditingProfile = false; close(); });
+p.querySelectorAll('.lang-btn').forEach(btn => {
+btn.addEventListener('click', () => {
+const nextLang = btn.dataset.lang;
+setLang(nextLang);
+App.utils.toast(nextLang === 'en' ? 'Language: English' : 'Язык: Русский');
+open();
+});
+});
+$('logoutRow').addEventListener('click', () => {
+try {
 Object.keys(localStorage).forEach(k => {
 if (k.startsWith('tg_') || k.startsWith('looma_profile')) localStorage.removeItem(k);
 });
@@ -226,12 +229,14 @@ App.utils.toast(en ? 'Profile saved' : 'Профиль Looma сохранён');
 open();
 });
 }
-p.querySelectorAll('.toggle').forEach(t =>
-t.addEventListener('click', () => {
-const key = t.dataset.k;
-const on = !t.classList.contains('on');
-t.classList.toggle('on', on);
-t.setAttribute('aria-checked', on);
+p.querySelectorAll('.looma-switch').forEach(sw =>
+sw.addEventListener('click', () => {
+const key = sw.dataset.k;
+const on = sw.dataset.on !== '1';
+sw.dataset.on = on ? '1' : '0';
+sw.style.background = on ? 'var(--accent,#7c4dff)' : 'rgba(128,128,128,0.35)';
+const knob = sw.querySelector('span');
+if (knob) knob.style.transform = on ? 'translateX(20px)' : 'translateX(2px)';
 if (key === 'darkTheme') {
 applyThemeMode(on);
 App.utils.toast(on ? (en ? 'Dark theme enabled' : 'Тёмная тема включена') : (en ? 'Light theme enabled' : 'Светлая тема включена'));
@@ -248,8 +253,13 @@ sw.classList.add('on');
 }));
 }
 function togRow(key, lab, desc, on) {
-return '' + esc(lab) +
+const bg = on ? 'var(--accent,#7c4dff)' : 'rgba(128,128,128,0.35)';
+const tx = on ? 'translateX(20px)' : 'translateX(2px)';
+return '' +
+'' + esc(lab) + '' +
 '' + esc(desc) + '' +
+'' +
+'' +
 '';
 }
 function label(k, en) {
