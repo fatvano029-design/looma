@@ -1,7 +1,7 @@
-/* ================= css/chat.css — Looma Conversation View ================= */
+/* ================= css/chat.css — Looma Clean Edge-to-Edge Chat ================= */
 #cheader{background:var(--panel);display:flex;align-items:center;gap:12px;padding:10px 16px;
   border-bottom:1px solid var(--border);flex-shrink:0}
-#cheader .avatar{cursor:pointer;overflow:hidden}
+#cheader .avatar{cursor:pointer}
 #ctitle{flex:1;min-width:0;cursor:pointer}
 #ctitle .name{font-weight:700;font-size:16px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #ctitle .status{font-size:13px;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -15,18 +15,20 @@
   font-size:14px;outline:none;font-family:inherit}
 #chatsearch .count{font-size:12px;color:var(--grey);white-space:nowrap}
 
-#messages{flex:1;overflow-y:auto;padding:16px 24px;position:relative;
+/* Чистый градиент без сетки */
+#messages{flex:1;overflow-y:auto;padding:16px 18px;position:relative;
   background:radial-gradient(circle at 20% 15%, #191d2e 0%, #0f121c 65%, #0b0d14 100%) !important}
 [data-theme="light"] #messages{
   background:linear-gradient(160deg, #eef2ff 0%, #f8fafc 55%, #e2e8f0 100%) !important}
 
+/* Сообщения у краёв экрана, как в Telegram */
 #msgsInner{width:100%;max-width:100%;margin:0;display:flex;flex-direction:column;gap:8px}
 .datebubble{align-self:center;background:rgba(128,138,160,.2);color:var(--text);font-size:12px;font-weight:600;
   padding:5px 14px;border-radius:14px;margin:8px 0;border:1px solid var(--border)}
 
-/* ---------- message bubbles ---------- */
-.msg{max-width:68%;padding:9px 13px 7px;border-radius:16px;font-size:14.5px;line-height:1.45;
-  position:relative;box-shadow:0 4px 14px rgba(0,0,0,.14);word-wrap:break-word;overflow-wrap:anywhere}
+/* Пузыри с обводкой */
+.msg{max-width:65%;padding:9px 13px 7px;border-radius:16px;font-size:14.5px;line-height:1.45;
+  position:relative;box-shadow:0 4px 14px rgba(0,0,0,.12);word-wrap:break-word;overflow-wrap:anywhere}
 
 .msg.in{background:#1b2030;color:#f3f4f6;align-self:flex-start;border-top-left-radius:4px;
   border:1px solid rgba(255,255,255,.12)}
@@ -44,7 +46,7 @@
 .msg .clear{clear:both}
 .msg.hl{outline:2px solid var(--accent);outline-offset:2px}
 
-.msg .quote{border-left:3px solid #00e5ff;background:rgba(0,0,0,.16);border-radius:6px;
+.msg .quote{border-left:3px solid #00e5ff;background:rgba(0,0,0,.15);border-radius:6px;
   padding:6px 10px;margin-bottom:6px;font-size:13px;cursor:pointer}
 .msg .quote .qsender{font-weight:700;font-size:12.5px}
 .msg .quote .qtext{opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -61,16 +63,16 @@
 .msg .file .fname{font-weight:600;font-size:13.5px;word-break:break-all}
 .msg .file .fsize{font-size:11.5px;opacity:.8}
 .msg .voice{display:flex;align-items:center;gap:10px;min-width:220px;padding:4px 0}
-.msg .voice .vplay{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.22);color:inherit;
+.msg .voice .vplay{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.2);color:inherit;
   border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .msg .voice .vwave{display:flex;align-items:center;gap:2px;height:26px;flex:1}
-.msg .voice .vwave i{width:3px;background:currentColor;border-radius:2px;opacity:.85;transition:opacity .15s}
+.msg .voice .vwave i{width:3px;background:currentColor;border-radius:2px;opacity:.85}
 .msg .voice .vdur{font-size:12px;opacity:.85}
 .msg.stickerbox{background:none !important;border:none !important;box-shadow:none !important;padding:0}
 .msg .sticker{font-size:64px;line-height:1}
 
 .ctxmenu{position:fixed;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35);
-  padding:6px 0;min-width:200px;z-index:200;animation:loomaPopIn .16s ease both}
+  padding:6px 0;min-width:190px;z-index:200}
 .ctxmenu button{display:flex;align-items:center;gap:12px;width:100%;border:none;background:none;
   padding:10px 16px;font-size:14px;cursor:pointer;color:var(--text);text-align:left}
 .ctxmenu button:hover{background:var(--hover)}
