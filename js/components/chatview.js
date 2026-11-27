@@ -231,3 +231,110 @@ App.components.chatview = (() => {
         catch (err) {}
       }
       if (a === 'del_me' || a === 'del_all') {
+const scope = a === 'del_me' ? 'me' : 'all';
+try {
+await App.api.deleteMessage(m.mid || m.id, scope);
+await App.store.loadMessages(chat.id);
+renderMessages(chat);
+App.components.chatlist.render(App.store.state.filter);
+} catch (err) {
+App.utils.toast(err.message);
+}
+}
+});
+}
+function kindText(m) {
+return { image: '📷 Фото', video: '🎬 Видео', file: '📎 ' + (m.fileName || 'Файл'),
+voice: '🎤 Голосовое сообщение', sticker: m.text || 'Стикер' }[m.kind] || '';
+}
+function openForwardPicker(m) {
+const back = $('modalback');
+const en = isEn();
+back.classList.add('open');
+back.innerHTML =
+'' + (en ? 'Forward to…' : 'Переслать…') + '' +
+App.store.sortedChats().map(c =>
+'' + avatar(c, 'a44') +
+'' + esc(c.name) + '').join('') +
+'';
+back.querySelectorAll('.frow').forEach(row =>
+row.addEventListener('click', async () => {
+const to = App.store.getChat(row.dataset.id);
+const payload = {
+kind: m.kind, text: m.text || '',
+forwardedFrom: (m.from === (App.me && App.me.username)) ? (App.me.name || 'Вы') : (m.sender || 'Пользователь')
+};
+if (m.data) payload.data = m.data;
+if (m.fileName) payload.fileName = m.fileName;
+if (m.fileSize != null) payload.fileSize = m.fileSize;
+if (m.duration != null) payload.duration = m.duration;
+try {
+const saved = await App.store.sendMessage(to.id, payload);
+App.utils.toast((en ? 'Forwarded to ' : 'Переслано в ') + to.name);
+if (App.store.state.activeId === to.id) appendMessage(to, saved);
+App.components.chatlist.render(App.store.state.filter);
+} catch (err) {
+App.utils.toast(err.message);
+}
+back.classList.remove('open');
+}));
+back.onclick = ev => { if (ev.target === back) back.classList.remove('open'); };
+}
+function showTyping(on, realStatus) {
+const s = $('cstatus');
+if (!s) return;
+if (on) { s.textContent = isEn() ? 'typing...' : 'печатает...'; s.classList.add('typing'); }
+else { s.textContent = realStatus || ''; s.classList.remove('typing'); }
+}
+function toggleSearch() {
+const bar = $('chatsearch');
+if (!bar) return;
+bar.classList.toggle('open');
+if (bar.classList.contains('open')) $('csInput').focus();
+else { searchState = null; clearHighlights(); }
+}
+function clearHighlights() {
+App.utils.$$('.msg.hl').forEach(x => x.classList.remove('hl'));
+const c = $('csCount');
+if (c) c.textContent = '';
+}
+function runSearch(chat, q) {
+clearHighlights();
+q = q.trim().toLowerCase();
+if (!q) { searchState = null; return; }
+const matches = [];
+App.utils.$$('#msgsInner .msg').forEach(el => {
+const m = App.store.findMessage(chat.id, el.dataset.mid);
+if (m && (m.text || '').toLowerCase().includes(q)) matches.push(el.dataset.mid);
+});
+searchState = { matches, idx: -1 };
+$('csCount').textContent = matches.length ? '0 / ' + matches.length : (isEn() ? 'no results' : 'нет совпадений');
+if (matches.length) nextMatch(1);
+}
+function nextMatch(dir) {
+if (!searchState || !searchState.matches.length) return;
+searchState.idx = (searchState.idx + dir + searchState.matches.length) % searchState.matches.length;
+App.utils.$$('.msg.hl').forEach(x => x.classList.remove('hl'));
+const mid = searchState.matches[searchState.idx];
+const el = document.querySelector('#msgsInner .msg[data-mid="' + mid + '"]');
+if (el) {
+el.classList.add('hl');
+el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+$('csCount').textContent = (searchState.idx + 1) + ' / ' + searchState.matches.length;
+}
+}
+function scrollBottom() {
+const box = $('messages');
+if (box) box.scrollTop = box.scrollHeight;
+}
+function closeMenu() {
+App.utils.$$('.ctxmenu').forEach(x => x.remove());
+}
+document.addEventListener('click', e => {
+if (!e.target.closest('.ctxmenu')) closeMenu();
+});
+return {
+open, renderMessages, appendMessage, showTyping,
+closeMenu, scrollBottom, toggleSearch, stopPoll
+};
+})();
