@@ -1,4 +1,3 @@
-/* ================= components/chatview.js — Looma Safe Conversation Pane ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
@@ -16,7 +15,7 @@ App.components.chatview = (() => {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
 
-  async function open(id) {
+  function open(id) {
     const chat = App.store.getChat(id);
     if (!chat) return;
     const en = isEn();
@@ -43,7 +42,7 @@ App.components.chatview = (() => {
       '<div id="chatsearch"><input id="csInput" placeholder="' + (en ? 'Search in conversation…' : 'Поиск по сообщениям…') + '">' +
       '<span class="count" id="csCount"></span>' +
       '<button class="iconbtn" id="csClose" title="' + (en ? 'Close' : 'Закрыть') + '">' + icon('close') + '</button></div>' +
-      '<div id="messages"><div id="msgsInner"><div class="datebubble">' + (en ? 'Loading…' : 'Загрузка…') + '</div></div></div>' +
+      '<div id="messages"><div id="msgsInner"></div></div>' +
       '<div id="replybar"><div style="flex:1;min-width:0">' +
         '<div class="rsender" id="rsSender"></div><div class="rtext" id="rsText"></div></div>' +
         '<button class="iconbtn" id="rsClose" title="' + (en ? 'Cancel reply' : 'Отменить ответ') + '">' + icon('close') + '</button></div>' +
@@ -73,17 +72,18 @@ App.components.chatview = (() => {
     if ($('hMore')) $('hMore').addEventListener('click', e => headerMenu(e, chat));
     if ($('rsClose')) $('rsClose').addEventListener('click', () => App.components.inputbar.clearReply());
 
-    try {
-      await App.store.loadMessages(chat.id);
-    } catch (e) {
-      if ($('msgsInner')) $('msgsInner').innerHTML = '<div class="datebubble">' + (en ? 'Could not load messages' : 'Не удалось загрузить сообщения') + '</div>';
-    }
+    // Мгновенно открываем чат из кэша за 0 мс
     renderMessages(chat);
     App.components.inputbar.mount($('inputbar'), chat);
     App.store.clearUnread(chat.id);
     chat.unread = 0;
     App.components.chatlist.render(App.store.state.filter);
-    startPoll(chat);
+
+    // Фоновая синхронизация без задержки интерфейса
+    App.store.loadMessages(chat.id).then(() => {
+      if (App.store.state.activeId === chat.id) renderMessages(chat);
+      startPoll(chat);
+    }).catch(() => startPoll(chat));
   }
 
   function startPoll(chat) {
@@ -101,15 +101,16 @@ App.components.chatview = (() => {
           appendMessage(chat, m);
           if (m.ts > lastTs) lastTs = m.ts;
         }
-             if (fresh.length) {
+        if (fresh.length) {
           if (fresh.some(m => !m.out) && App.playMsgSound) App.playMsgSound(true);
           App.store.clearUnread(chat.id);
           chat.unread = 0;
           App.components.chatlist.render(App.store.state.filter);
         }
+        const ty = await App.api.getTyping(chat.id);
         renderTyping(chat, (ty && ty.typing) || []);
         pollCount++;
-        if (pollCount % 3 === 0) {
+        if (pollCount % 4 === 0) {
           try {
             const keepFilter = App.store.state.filter;
             await App.store.loadChats();
@@ -120,7 +121,6 @@ App.components.chatview = (() => {
       } catch (e) {}
     };
     pollTimer = setInterval(tick, 1800);
-    tick();
   }
 
   function renderTyping(chat, typing) {
@@ -128,10 +128,10 @@ App.components.chatview = (() => {
     const en = isEn();
     if (!s || App.store.state.activeId !== chat.id) return;
     if (typing.length) {
-      const names = typing.map(t => (t.name || '').split(' ')[0]);
+      const names = typing.map(t => (t.name || '').split(' '));
       s.textContent = en
-        ? (names[0] + ' is typing...')
-        : (names[0] + ' печатает...');
+        ? (names + ' is typing...')
+        : (names + ' печатает...');
       s.classList.add('typing');
     } else {
       s.textContent = chat.status || chat.subtitle || '';
@@ -232,11 +232,26 @@ App.components.chatview = (() => {
       }
       if (a === 'del_me' || a === 'del_all') {
 const scope = a === 'del_me' ? 'me' : 'all';
+const targetMid = m.mid || m.id;
+const bubbleEl = document.querySelector('#msgsInner .msg[data-mid="' + targetMid + '"]');
+if (bubbleEl) {
+bubbleEl.style.transition = 'opacity 0.25s ease, transform 0.25s ease, max-height 0.28s ease, margin 0.28s ease, padding 0.28s ease';
+bubbleEl.style.opacity = '0';
+bubbleEl.style.transform = 'scale(0.85) translateY(-6px)';
+bubbleEl.style.maxHeight = '0px';
+bubbleEl.style.marginTop = '0px';
+bubbleEl.style.marginBottom = '0px';
+bubbleEl.style.paddingTop = '0px';
+bubbleEl.style.paddingBottom = '0px';
+bubbleEl.style.overflow = 'hidden';
+setTimeout(() => bubbleEl.remove(), 270);
+}
 try {
-await App.api.deleteMessage(m.mid || m.id, scope);
-await App.store.loadMessages(chat.id);
-renderMessages(chat);
+const list = App.store.getMessages(chat.id);
+const idx = list.findIndex(x => (x.mid || x.id) === targetMid);
+if (idx >= 0) list.splice(idx, 1);
 App.components.chatlist.render(App.store.state.filter);
+await App.api.deleteMessage(targetMid, scope);
 } catch (err) {
 App.utils.toast(err.message);
 }
