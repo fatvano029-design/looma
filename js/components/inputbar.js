@@ -1,10 +1,10 @@
-/* ================= components/inputbar.js — Preview Modal, Real Mic & Instant Send ================= */
+/* ================= components/inputbar.js — Looma Composer (Preview + Real Mic + Channel Lock) ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
 
 App.components.inputbar = (() => {
-  const { $, esc, icon, fmtSize } = App.utils;
+  const { $, esc, icon } = App.utils;
   let currentChat = null;
   let recTimer = null, recSecs = 0;
   let mediaRecorder = null, audioChunks = [];
@@ -16,11 +16,10 @@ App.components.inputbar = (() => {
     currentChat = chat;
     const en = isEn();
 
-    // В канале обычным подписчикам запрещаем писать
     if (chat.type === 'channel' && chat.canPost === false) {
       container.innerHTML =
-        '<div style="width:100%;text-align:center;padding:8px 12px;color:var(--grey);font-size:13.5px;font-weight:600;">' +
-          (en ? 'Only channel administrators can post messages' : 'В этом канале писать могут только администраторы') +
+        '<div style="width:100%;text-align:center;padding:10px;color:var(--grey);font-size:13.5px;font-weight:600;">' +
+          (en ? 'Only channel administrators can post messages' : 'Публиковать посты в канале могут только администраторы') +
         '</div>';
       return;
     }
@@ -29,15 +28,15 @@ App.components.inputbar = (() => {
       '<button class="iconbtn" id="bAttach" title="' + (en ? 'Attach' : 'Прикрепить') + '">' + icon('attach') + '</button>' +
       '<div id="recorder"><span class="rdot"></span><span class="rtime">0:00</span>' +
         '<div class="rwaves">' + waves() + '</div>' +
-        '<span class="rhint">' + (en ? 'Recording… tap mic to send' : 'Запись… нажмите микрофон для отправки') + '</span></div>' +
-      '<input id="msgInput" placeholder="' + (en ? 'Write a message...' : 'Написать сообщение…') + '" autocomplete="off">' +
-      '<button class="iconbtn" id="bEmoji" title="Emoji">' + icon('emoji') + '</button>' +
+        '<span class="rhint">' + (en ? 'recording… tap mic to send' : 'запись… нажмите микрофон для отправки') + '</span></div>' +
+      '<input id="msgInput" placeholder="' + (en ? 'Write a message...' : 'Написать сообщение...') + '" autocomplete="off">' +
+      '<button class="iconbtn" id="bEmoji" title="' + (en ? 'Emoji' : 'Эмодзи') + '">' + icon('emoji') + '</button>' +
       '<button class="iconbtn" id="bMic" title="' + (en ? 'Voice message' : 'Голосовое сообщение') + '">' + icon('mic') + '</button>' +
       '<button class="iconbtn" id="sendBtn" title="' + (en ? 'Send' : 'Отправить') + '" style="display:none">' + icon('send') + '</button>' +
       '<div id="emojipick"><div class="etabs"></div><div class="egrid"></div></div>' +
       '<div id="attachmenu">' +
-        '<button data-a="photo">' + icon('image') + (en ? 'Photo or Video' : 'Фото или видео') + '</button>' +
-        '<button data-a="file">' + icon('file') + (en ? 'Document / File' : 'Документ (файл)') + '</button>' +
+        '<button data-a="photo">' + icon('image') + (en ? 'Photo / Video' : 'Фото или видео') + '</button>' +
+        '<button data-a="file">' + icon('file') + (en ? 'Document (File)' : 'Документ (файл)') + '</button>' +
       '</div>';
 
     buildEmojiPicker();
@@ -45,7 +44,7 @@ App.components.inputbar = (() => {
     input.focus();
 
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey && App.store.state.settings.enterToSend !== false) {
+      if (e.key === 'Enter' && !e.shiftKey && App.store.state.enterToSend !== false) {
         e.preventDefault();
         sendText();
       }
@@ -79,7 +78,7 @@ App.components.inputbar = (() => {
     });
     $('attachmenu').addEventListener('click', e => {
       const a = e.target.closest('button') && e.target.closest('button').dataset.a;
-      if (a) openAttachmentPicker(a);
+      if (a) sendAttachment(a);
       $('attachmenu').classList.remove('open');
     });
     $('bMic').addEventListener('click', toggleRecorder);
@@ -96,7 +95,7 @@ App.components.inputbar = (() => {
   function basePayload(kind) {
     const r = App.store.state.replyTo;
     const p = { kind: kind || 'text', text: '' };
-    if (r && r.text) p.replyTo = { mid: r.mid, sender: r.sender, text: r.text };
+    if (r && r.mid && (r.text || r.sender)) p.replyTo = { mid: r.mid, sender: r.sender, text: r.text };
     return p;
   }
 
@@ -119,112 +118,99 @@ App.components.inputbar = (() => {
     $('emojipick').classList.remove('open');
     deliver(p);
   }
-
-  /* Окно предпросмотра перед отправкой фото, видео или документа */
-  function openAttachmentPicker(kind) {
-    if (!currentChat) return;
-    const inp = document.createElement('input');
-    inp.type = 'file';
-    if (kind === 'photo') inp.accept = 'image/*,video/*';
-    inp.onchange = () => {
-      const f = inp.files && inp.files;
-      if (!f) return;
-      if (f.size > 4194304) {
-        App.utils.toast('Файл слишком большой (макс. 4 МБ)');
-        return;
-      }
-      const rd = new FileReader();
-      rd.onload = () => {
-        const isVideo = f.type.startsWith('video/');
-        const isImg = f.type.startsWith('image/');
-        const realKind = isVideo ? 'video' : (isImg ? 'image' : 'file');
-        showPreviewModal(realKind, rd.result, f.name, f.size);
-      };
-      rd.onerror = () => App.utils.toast('Не удалось прочитать файл');
-      rd.readAsDataURL(f);
-    };
-    inp.click();
-  }
-
-  function showPreviewModal(kind, dataUrl, fileName, fileSize) {
-    const back = $('modalback');
-    const en = isEn();
-    back.classList.add('open');
-
-    let mediaPreview = '';
-    if (kind === 'image') {
-      mediaPreview = '<img src="' + dataUrl + '" style="max-width:100%;max-height:280px;border-radius:12px;object-fit:contain;margin:0 auto 12px;display:block;">';
-    } else if (kind === 'video') {
-      mediaPreview = '<video src="' + dataUrl + '" controls style="max-width:100%;max-height:260px;border-radius:12px;margin:0 auto 12px;display:block;background:#000;"></video>';
-    } else {
-      mediaPreview =
-        '<div style="display:flex;align-items:center;gap:12px;padding:14px;background:rgba(128,128,128,.12);border-radius:12px;margin-bottom:12px;">' +
-          '<div style="width:42px;height:42px;border-radius:50%;background:var(--accent,#7c4dff);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' + icon('file') + '</div>' +
-          '<div style="min-width:0;"><div style="font-weight:700;word-break:break-all;">' + esc(fileName) + '</div>' +
-          '<div style="font-size:12px;color:var(--grey);">' + fmtSize(fileSize) + '</div></div>' +
-        '</div>';
-    }
-
-    back.innerHTML =
-      '<div style="width:100%;max-width:400px;background:var(--panel,#161926);border:1px solid var(--border);border-radius:20px;padding:20px;color:var(--text,#fff);box-shadow:0 20px 50px rgba(0,0,0,.55);animation:popFade .2s ease;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
-          '<strong style="font-size:16px;">' + (en ? 'Send media' : 'Предпросмотр перед отправкой') + '</strong>' +
-          '<button class="iconbtn" id="pvClose">' + icon('close') + '</button>' +
-        '</div>' +
-        mediaPreview +
-        '<input id="pvCaption" placeholder="' + (en ? 'Add a caption…' : 'Добавить подпись…') + '" style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:14px;outline:none;">' +
-        '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
-          '<button type="button" id="pvCancel" style="padding:9px 16px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--grey);cursor:pointer;font-weight:600;">' + (en ? 'Cancel' : 'Отмена') + '</button>' +
-          '<button type="button" id="pvSend" style="padding:9px 20px;border-radius:12px;border:none;background:var(--accent,#7c4dff);color:#fff;cursor:pointer;font-weight:700;">' + (en ? 'Send' : 'Отправить') + '</button>' +
-        '</div>' +
-      '</div>';
-
-    const closePv = () => { back.classList.remove('open'); back.innerHTML = ''; };
-    const confirmPv = () => {
-      const cap = $('pvCaption').value.trim();
-      closePv();
-      const p = basePayload(kind);
-      p.data = dataUrl;
-      p.text = cap;
-      if (kind === 'file') { p.fileName = fileName; p.fileSize = fileSize; }
-      deliver(p);
-    };
-
-    $('pvClose').onclick = closePv;
-    $('pvCancel').onclick = closePv;
-    $('pvSend').onclick = confirmPv;
-    $('pvCaption').addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); confirmPv(); }
-    });
-    back.onclick = ev => { if (ev.target === back) closePv(); };
-    setTimeout(() => $('pvCaption').focus(), 40);
-  }
-
-  /* Мгновенная оптимистичная отправка без задержки */
-  async function deliver(payload) {
-    const chat = currentChat;
-    if (!chat) return;
-    App.store.setReplyTo(null);
-    hideReplyBar();
-
-    const tempId = 'temp_' + Date.now() + '_' + Math.floor(Math.random() * 999);
-    const d = new Date();
-    const timeStr = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-    const optimistic = Object.assign({}, payload, {
-      id: tempId,
-      mid: tempId,
-      from: App.me && App.me.username,
-      sender: App.me && App.me.name,
-      out: true,
-      ts: Date.now(),
-      time: timeStr
-    });
-App.components.chatview.appendMessage(chat, optimistic);
+/* Окно предпросмотра фото, видео или документа перед отправкой /
+function sendAttachment(kind) {
+if (!currentChat) return;
+const en = isEn();
+const inp = document.createElement('input');
+inp.type = 'file';
+if (kind === 'photo') inp.accept = 'image/,video/*';
+inp.onchange = () => {
+const f = inp.files && inp.files;
+if (!f) return;
+if (f.size > 4194304) {
+App.utils.toast(en ? 'File too large (max 4MB)' : 'Файл слишком большой (макс. 4 МБ)');
+return;
+}
+const rd = new FileReader();
+rd.onload = () => {
+const isVideo = f.type.startsWith('video/');
+const isImage = f.type.startsWith('image/');
+const msgKind = isVideo ? 'video' : (isImage ? 'image' : 'file');
+const back = $('modalback');
+back.classList.add('open');
+const previewHtml = isImage
+? ''
+: (isVideo
+? ''
+: '' +
+'' + icon('file') + '' +
+'' + esc(f.name) + '' +
+'' + App.utils.fmtSize(f.size) + '' +
+'');
+back.innerHTML =
+'' +
+'' +
+'' + (en ? 'Send attachment' : 'Предпросмотр перед отправкой') + '' +
+'' + icon('close') + '' +
+'' +
+previewHtml +
+'' +
+'' +
+'' + (en ? 'Cancel' : 'Отмена') + '' +
+'' + (en ? 'Send' : 'Отправить') + '' +
+'' +
+'';
+const closePv = () => { back.classList.remove('open'); back.innerHTML = ''; };
+const confirmSend = () => {
+const cap = ($('pvCaption') && $('pvCaption').value.trim()) || '';
+closePv();
+const p = basePayload(msgKind);
+p.data = rd.result;
+p.text = cap;
+if (msgKind === 'file') { p.fileName = f.name; p.fileSize = f.size; }
+deliver(p);
+};
+$('pvClose').onclick = closePv;
+$('pvCancel').onclick = closePv;
+$('pvSend').onclick = confirmSend;
+back.onclick = ev => { if (ev.target === back) closePv(); };
+setTimeout(() => {
+if ($('pvCaption')) {
+$('pvCaption').focus();
+$('pvCaption').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); confirmSend(); } };
+}
+}, 40);
+};
+rd.readAsDataURL(f);
+};
+inp.click();
+}
+/* Мгновенная оптимистичная отправка без задержки */
+async function deliver(payload) {
+const chat = currentChat;
+if (!chat) return;
+App.store.setReplyTo(null);
+hideReplyBar();
+const tempMid = 'temp_' + Date.now();
+const d = new Date();
+const pad = n => String(n).padStart(2, '0');
+const tempMsg = Object.assign({}, payload, {
+id: tempMid,
+mid: tempMid,
+chatId: chat.id,
+from: App.me && App.me.username,
+sender: App.me && App.me.name,
+out: true,
+ts: Date.now(),
+time: pad(d.getHours()) + ':' + pad(d.getMinutes())
+});
+App.components.chatview.appendMessage(chat, tempMsg);
 try {
 const saved = await App.store.sendMessage(chat.id, payload);
-const tempEl = document.querySelector('.msg[data-mid="' + tempId + '"]');
-if (tempEl && saved && (saved.mid || saved.id)) {
-tempEl.dataset.mid = saved.mid || saved.id;
+const oldEl = document.querySelector('.msg[data-mid="' + tempMid + '"]');
+if (oldEl && saved && (saved.mid || saved.id)) {
+oldEl.dataset.mid = saved.mid || saved.id;
 }
 App.components.chatlist.render(App.store.state.filter);
 } catch (e) {
@@ -277,24 +263,25 @@ try {
 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 audioChunks = [];
 mediaRecorder = new MediaRecorder(stream);
-mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
 mediaRecorder.onstop = () => {
-stream.getTracks().forEach(t => t.stop());
+stream.getTracks().forEach(tr => tr.stop());
+const dur = recSecs;
+if (dur > 0 && currentChat && audioChunks.length) {
 const blob = new Blob(audioChunks, { type: 'audio/webm' });
 const rd = new FileReader();
 rd.onload = () => {
-if (recSecs > 0 && currentChat) {
 const p = basePayload('voice');
-p.duration = recSecs;
+p.duration = dur;
 p.data = rd.result;
 deliver(p);
-}
 };
 rd.readAsDataURL(blob);
+}
 };
 mediaRecorder.start();
 } catch (err) {
-App.utils.toast('Разрешите доступ к микрофону в браузере');
+App.utils.toast('Нет доступа к микрофону');
 return;
 }
 rec.classList.add('open');
@@ -340,3 +327,4 @@ if (bar) bar.classList.remove('open');
 }
 return { mount, setReply, clearReply };
 })();
+```
