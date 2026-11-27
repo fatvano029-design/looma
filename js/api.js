@@ -1,4 +1,4 @@
-/* ================= js/api.js — Looma Complete Backend ================= */
+/* ================= js/api.js — Looma Ultra-Fast Backend ================= */
 'use strict';
 window.App = window.App || {};
 
@@ -78,41 +78,64 @@ App.api = (() => {
   }
 
   let _cache = null, _cacheTs = 0, _inFlight = null;
+  const _chunkCache = {};
 
-  async function pullAll(force) {
-    if (!force && _cache && Date.now() - _cacheTs < 900) return _cache;
-    if (_inFlight) return _inFlight;
-    _inFlight = (async () => {
+  async function hydrateChunks(keysNeeded) {
+    const missing = keysNeeded.filter(k => !_chunkCache[k]);
+    if (!missing.length) return;
+    try {
+      const res = await fetch(COL_URL + "?perPage=500&skipTotal=1&filter=(k~'chunk__')&_t=" + Date.now());
+      if (!res.ok) return;
+      const json = await res.json();
+      const rawMap = {};
+      (json.items || []).forEach(item => {
+        const parts = item.k.split('__');
+        const baseKey = parts.slice(1, -1).join('__');
+        const idx = Number(parts.at(-1));
+        rawMap[baseKey] = rawMap[baseKey] || [];
+        rawMap[baseKey][idx] = item.v || '';
+      });
+      Object.keys(rawMap).forEach(bk => { _chunkCache[bk] = rawMap[bk].join(''); });
+    } catch (e) {}
+  }
+
+  async function pullAll(force, withMedia) {
+    if (!force && !withMedia && _cache && Date.now() - _cacheTs < 1200) return _cache;
+    if (_inFlight && !withMedia) return _inFlight;
+    const run = (async () => {
       try {
-        const res = await fetch(COL_URL + '?perPage=500&_t=' + Date.now());
+        const res = await fetch(COL_URL + "?perPage=300&sort=-id&skipTotal=1&filter=(k!~'chunk__')&_t=" + Date.now());
         if (!res.ok) throw new Error('Сервер отвечает кодом: ' + res.status);
         const json = await res.json();
         const rawItems = json.items || [];
-        const chunksMap = {};
-        rawItems.forEach(item => {
-          if (item.k && item.k.startsWith('chunk__')) {
-            const parts = item.k.split('__');
-            const baseKey = parts.slice(1, -1).join('__');
-            const idx = Number(parts.at(-1));
-            chunksMap[baseKey] = chunksMap[baseKey] || [];
-            chunksMap[baseKey][idx] = item.v || '';
-          }
-        });
 
         const map = {};
+        const chunkedKeys = [];
         rawItems.forEach(item => {
-          if (!item.k || item.k.startsWith('chunk__')) return;
-          if (item.v) {
-            try {
-              const parsed = JSON.parse(item.v);
-              if (parsed && parsed._chunked && chunksMap[item.k]) {
-                parsed.data = chunksMap[item.k].join('');
+          if (!item.k || !item.v) return;
+          try {
+            const parsed = JSON.parse(item.v);
+            if (parsed && parsed._chunked) {
+              chunkedKeys.push(item.k);
+              if (_chunkCache[item.k]) {
+                parsed.data = _chunkCache[item.k];
                 delete parsed._chunked;
               }
-              map[item.k] = { recId: item.id, data: parsed };
-            } catch (e) {}
-          }
+            }
+            map[item.k] = { recId: item.id, data: parsed };
+          } catch (e) {}
         });
+
+        if (withMedia && chunkedKeys.length) {
+          await hydrateChunks(chunkedKeys);
+          chunkedKeys.forEach(k => {
+            if (_chunkCache[k] && map[k]) {
+              map[k].data.data = _chunkCache[k];
+              delete map[k].data._chunked;
+            }
+          });
+        }
+
         _cache = map;
         _cacheTs = Date.now();
         return map;
@@ -120,7 +143,8 @@ App.api = (() => {
         _inFlight = null;
       }
     })();
-    return _inFlight;
+    if (!withMedia) _inFlight = run;
+    return run;
   }
 
   async function putDoc(docKey, obj) {
@@ -129,6 +153,7 @@ App.api = (() => {
 
     if (copy.data && typeof copy.data === 'string' && copy.data.length > 4200) {
       const fullData = copy.data;
+      _chunkCache[docKey] = fullData;
       const step = 4200;
       const total = Math.ceil(fullData.length / step);
       for (let i = 0; i < total; i++) {
@@ -169,7 +194,7 @@ App.api = (() => {
   }
 
   async function delDoc(docKey) {
-    const map = await pullAll(false);
+    const map = await pullAll(false, false);
     const existing = map[docKey];
     if (existing && existing.recId) {
       await fetch(COL_URL + '/' + existing.recId, { method: 'DELETE' }).catch(() => {});
@@ -178,17 +203,17 @@ App.api = (() => {
   }
 
   async function getUsers() {
-    const map = await pullAll(false);
+    const map = await pullAll(false, false);
     return Object.entries(map).filter(([k]) => k.startsWith('user__')).map(([, v]) => enrichUser(v.data));
   }
 
   async function getChats() {
-    const map = await pullAll(false);
+    const map = await pullAll(false, false);
     return Object.entries(map).filter(([k]) => k.startsWith('chat__')).map(([, v]) => v.data);
   }
 
   async function getChatMsgs(chatId, myId, myUsername) {
-    const map = await pullAll(false);
+    const map = await pullAll(false, false);
     return Object.entries(map)
       .filter(([k]) => k.startsWith('msg__' + chatId + '__'))
       .map(([, v]) => normMsg(Object.assign({}, v.data), myId, myUsername))
@@ -254,15 +279,14 @@ App.api = (() => {
       ownerId: chat.ownerId || '',
       admins,
       canPost,
-      pinned: isSaved ? true : !!uState.pinned,
-      muted: !!uState.muted,
-      unreadCount,
-      unread: unreadCount,
-      lastMessage: lastMsg ? Object.assign({}, lastMsg) : null
-    });
-  }
-  async function req(method, path, body) {
-    await pullAll(method !== 'GET');
+pinned: isSaved ? true : !!uState.pinned,
+muted: !!uState.muted,
+unreadCount,
+unread: unreadCount,
+lastMessage: lastMsg ? Object.assign({}, lastMsg) : null
+});
+}async function req(method, path, body) {
+    await pullAll(method !== 'GET', false);
     const users = await getUsers();
 
     if (method === 'POST' && path === '/auth/signup') {
@@ -496,9 +520,9 @@ App.api = (() => {
     if (method === 'POST' && path.startsWith('/messages/') && path.endsWith('/delete')) {
       const mid = path.split('/').at(2);
       const scope = (body && body.scope) || 'all';
-      const map = await pullAll(true);
+      const map = await pullAll(true, false);
       const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.data && (v.data.id === mid || v.data.mid === mid));
-      if (entry) {
+if (entry) {
 const [docKey, wrap] = entry;
 if (scope === 'me') {
 wrap.data.hiddenFor = Array.from(new Set([...(wrap.data.hiddenFor || []), me.id]));
@@ -526,7 +550,7 @@ chat.deletedFor = Array.from(new Set([...(chat.deletedFor || []), me.id]));
 await putDoc('chat__' + chatId, chat);
 } else {
 await delDoc('chat__' + chatId);
-const map = await pullAll(false);
+const map = await pullAll(false, false);
 const msgKeys = Object.keys(map).filter(k => k.startsWith('msg__' + chatId + '__'));
 for (const mk of msgKeys) await delDoc(mk);
 }
@@ -562,7 +586,7 @@ await putDoc('chat__' + chatId, chat);
 return { ok: true };
 }
 if (method === 'GET' && sub.startsWith('/messages')) {
-await pullAll(true);
+await pullAll(true, true);
 const after = Number(sub.split('after=').at(1) || 0);
 const msgs = (await getChatMsgs(chatId, me.id, me.username)).filter(m => (m.ts || 0) > after);
 return { messages: msgs, now: Date.now() };
@@ -611,7 +635,7 @@ await putDoc('typing__' + chatId + '__' + me.id, { userId: me.id, name: me.name,
 return { ok: true };
 }
 if (method === 'GET' && sub === '/typing') {
-const map = await pullAll(false);
+const map = await pullAll(false, false);
 const activeTypers = Object.entries(map)
 .filter(([k, v]) => k.startsWith('typing__' + chatId + '__') && v && v.data && v.data.userId !== me.id && Date.now() - (v.data.ts || 0) < 3200)
 .map(([, v]) => ({ name: v.data.name }));
