@@ -81,5 +81,30 @@ App.boot = async function () {
   }
   App.components.chatlist.render('');
 };
+App.playMsgSound = function (isIncoming) {
+  const s = App.store && App.store.state && App.store.state.settings;
+  if (s && s.sounds === false) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(isIncoming ? 660 : 520, ctx.currentTime);
+    if (isIncoming) osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.17);
+  } catch (e) {}
+};
+
+try {
+  const savedAcc = localStorage.getItem('looma_accent');
+  if (savedAcc) document.documentElement.style.setProperty('--accent', savedAcc);
+} catch (e) {}
 
 document.addEventListener('DOMContentLoaded', App.init);
