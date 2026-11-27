@@ -541,11 +541,11 @@ chat.admins = chat.admins.filter(id => id !== uid);
 await putDoc('chat__' + chatId, chat);
 return { ok: true };
 }
-if (method === 'GET' && sub.startsWith('/messages')) {
-await pullAll(true);
-const msgs = await getChatMsgs(chatId, me.id, me.username);
-return { messages: msgs, now: Date.now() };
-}
+      if (method === 'GET' && sub.startsWith('/messages')) {
+        await pullAll(true, true);
+        const msgs = (await getChatMsgs(chatId, me.id, me.username)).filter(m => (m.ts || 0) > after);
+        return { messages: msgs, now: Date.now() };
+      }
 if (method === 'POST' && sub === '/messages') {
 const admins = chat.admins || (chat.ownerId ? [chat.ownerId] : []);
 if (chat.type === 'channel' && chat.ownerId !== me.id && !admins.includes(me.id)) {
