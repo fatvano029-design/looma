@@ -42,7 +42,8 @@ App.components.inputbar = (() => {
     input.focus();
 
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey && App.store.state.enterToSend) {
+      const canEnter = App.store.state.settings ? App.store.state.settings.enterToSend !== false : true;
+if (e.key === 'Enter' && !e.shiftKey && canEnter) {
         e.preventDefault();
         sendText();
       }
