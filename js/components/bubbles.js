@@ -1,16 +1,13 @@
-/* ================= components/bubbles.js — message renderer =================
-   Renders one message into a .msg element.
-   Kinds: text | image | file | voice | sticker. Supports reply quotes,
-   "forwarded from" labels and per-message ticks for outgoing messages.
-*/
+/* ================= components/bubbles.js — Real Audio Playback, Video & Clean Quotes ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
 
 App.components.bubbles = (() => {
   const { esc, icon, seeded, fmtDur, fmtSize } = App.utils;
+  let activeAudio = null;
+  let activeBtn = null;
 
-  /** fake waveform: deterministic bars from the message id */
   function waveform(mid, bars) {
     const rnd = seeded(mid || 'x');
     let h = '';
@@ -20,22 +17,23 @@ App.components.bubbles = (() => {
   }
 
   function ticksHtml(m) {
-    return '<span class="meta">' + esc(m.time) + ' ' +
-      '<span class="ticks sent" data-tick>✓</span></span>';
+    return '<span class="meta">' + esc(m.time || '') + ' ' +
+      '<span class="ticks sent" data-tick>✓✓</span></span>';
   }
   function metaHtml(m) {
-    return '<span class="meta">' + esc(m.time) + '</span>';
+    return '<span class="meta">' + esc(m.time || '') + '</span>';
   }
 
+  // Строгая проверка цитаты: убирает пустую синюю полоску над текстом
   function quoteHtml(q) {
-    if (!q) return '';
-    return '<div class="quote" data-q><div class="qsender">' + esc(q.sender) +
-      '</div><div class="qtext">' + esc(q.text) + '</div></div>';
+    if (!q || (!q.text && !q.sender)) return '';
+    return '<div class="quote" data-q><div class="qsender">' + esc(q.sender || '') +
+      '</div><div class="qtext">' + esc(q.text || '') + '</div></div>';
   }
 
   function fwdHtml(m) {
     return m.forwardedFrom
-      ? '<div class="fwd">Forwarded from ' + esc(m.forwardedFrom) + '</div>' : '';
+      ? '<div class="fwd">Переслано от ' + esc(m.forwardedFrom) + '</div>' : '';
   }
 
   function bodyHtml(m) {
@@ -43,10 +41,14 @@ App.components.bubbles = (() => {
       case 'image':
         return '<img class="pic" src="' + esc(m.src || m.data) + '" alt="photo" loading="lazy">' +
           (m.text ? '<span class="body">' + esc(m.text) + '</span>' : '');
+      case 'video':
+        return '<video class="pic" src="' + esc(m.src || m.data) + '" controls playsinline style="max-height:320px;background:#000;"></video>' +
+          (m.text ? '<span class="body">' + esc(m.text) + '</span>' : '');
       case 'file':
-        return '<div class="file"><div class="fic">' + icon('file') + '</div>' +
-          '<div><div class="fname">' + esc(m.fileName || 'file') + '</div>' +
-          '<div class="fsize">' + fmtSize(m.fileSize || 0) + '</div></div></div>' +
+        return '<a class="file" href="' + esc(m.data || '#') + '" download="' + esc(m.fileName || 'file') + '">' +
+          '<div class="fic">' + icon('file') + '</div>' +
+          '<div><div class="fname">' + esc(m.fileName || 'Документ') + '</div>' +
+          '<div class="fsize">' + fmtSize(m.fileSize || 0) + ' · Нажмите, чтобы скачать</div></div></a>' +
           (m.text ? '<span class="body">' + esc(m.text) + '</span>' : '');
       case 'voice':
         return '<div class="voice"><button class="vplay" data-play>' + icon('play', 'sm') +
@@ -59,43 +61,68 @@ App.components.bubbles = (() => {
     }
   }
 
-  /** main entry: build the bubble element for (chat, message) */
   function render(chat, m) {
     const d = document.createElement('div');
-    const out = m.from === (App.me && App.me.username);
+    const out = m.out || (m.from === (App.me && App.me.username));
     d.className = 'msg ' + (out ? 'out' : 'in') + (m.kind === 'sticker' ? ' stickerbox' : '');
-    d.dataset.mid = m.mid;
+    d.dataset.mid = m.mid || m.id;
 
     let head = '';
-    if (!out && chat.type === 'group' && m.sender)
-      head = '<div class="sender" style="color:' + esc(m.color || '#5682a3') + '">' +
-        esc(m.sender) + '</div>';
-    if (!out && chat.type === 'bot')
-      head = '<div class="sender" style="color:#2f80ed">' + esc(chat.name) + '</div>';
+    if (!out && (chat.type === 'group' || chat.type === 'channel') && m.sender) {
+      head = '<div class="sender" style="color:' + esc(m.color || '#00e5ff') + '">' + esc(m.sender) + '</div>';
+    }
 
     d.innerHTML = head + fwdHtml(m) + quoteHtml(m.replyTo) + bodyHtml(m) +
       (out ? ticksHtml(m) : metaHtml(m)) + '<div class="clear"></div>';
 
-    // wire fake voice playback
+    // Настоящее воспроизведение записанного голосового сообщения
     const play = d.querySelector('[data-play]');
-    if (play) play.addEventListener('click', () => {
-      const on = play.classList.toggle('on');
-      play.innerHTML = icon(on ? 'check' : 'play', 'sm');
-      App.utils.toast(on ? 'Playing voice message…' : 'Paused');
-      if (on) setTimeout(() => {
-        play.classList.remove('on');
-        play.innerHTML = icon('play', 'sm');
-      }, Math.min(6000, (m.duration || 5) * 1000));
-    });
+    if (play) {
+      play.addEventListener('click', () => {
+        if (!m.data) {
+          App.utils.toast('Аудиофайл не найден');
+          return;
+        }
+        if (activeAudio && activeBtn === play) {
+          activeAudio.pause();
+          activeAudio = null;
+          play.innerHTML = icon('play', 'sm');
+          activeBtn = null;
+          return;
+        }
+        if (activeAudio) {
+          activeAudio.pause();
+          if (activeBtn) activeBtn.innerHTML = icon('play', 'sm');
+        }
+        const audio = new Audio(m.data);
+        activeAudio = audio;
+        activeBtn = play;
+        play.innerHTML = icon('close', 'sm');
+        const bars = d.querySelectorAll('.vwave i');
+
+        audio.ontimeupdate = () => {
+          if (!audio.duration) return;
+          const pct = audio.currentTime / audio.duration;
+          const activeCount = Math.floor(pct * bars.length);
+          bars.forEach((b, idx) => b.classList.toggle('played', idx <= activeCount));
+        };
+        audio.onended = () => {
+          play.innerHTML = icon('play', 'sm');
+          bars.forEach(b => b.classList.remove('played'));
+          activeAudio = null;
+          activeBtn = null;
+        };
+        audio.play().catch(() => App.utils.toast('Не удалось воспроизвести аудио'));
+      });
+    }
     return d;
   }
 
-  /** animate ticks for a freshly sent message: ✓ -> ✓✓ -> blue */
   function animateTicks(bubbleEl) {
     const t = bubbleEl.querySelector('[data-tick]');
     if (!t) return;
-    setTimeout(() => { t.textContent = '✓✓'; }, 450);
-    setTimeout(() => { t.classList.remove('sent'); t.classList.add('read'); }, 1400);
+    setTimeout(() => { t.textContent = '✓✓'; }, 250);
+    setTimeout(() => { t.classList.remove('sent'); t.classList.add('read'); }, 800);
   }
 
   return { render, animateTicks };
