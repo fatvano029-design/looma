@@ -101,12 +101,12 @@ App.components.chatview = (() => {
           appendMessage(chat, m);
           if (m.ts > lastTs) lastTs = m.ts;
         }
-        if (fresh.length) {
+             if (fresh.length) {
+          if (fresh.some(m => !m.out) && App.playMsgSound) App.playMsgSound(true);
           App.store.clearUnread(chat.id);
           chat.unread = 0;
           App.components.chatlist.render(App.store.state.filter);
         }
-        const ty = await App.api.getTyping(chat.id);
         renderTyping(chat, (ty && ty.typing) || []);
         pollCount++;
         if (pollCount % 3 === 0) {
