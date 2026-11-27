@@ -15,6 +15,13 @@ App.components.chatview = (() => {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
 
+  function closeMobile() {
+    stopPoll();
+    App.store.setActive(null);
+    pane().classList.remove('open');
+    App.components.chatlist.render(App.store.state.filter);
+  }
+
   async function open(id) {
     const chat = App.store.getChat(id);
     if (!chat) return;
@@ -26,9 +33,14 @@ App.components.chatview = (() => {
     searchState = null;
     pollCount = 0;
 
+    const avaHtml = chat.avatar
+      ? '<div class="avatar a44" data-info style="background-image:url(' + chat.avatar + ');background-size:cover;background-position:center;color:transparent;">' + App.utils.initials(chat.name) + '</div>'
+      : '<div class="avatar ' + (chat.grad || 'g2') + ' a44" data-info style="background:' + esc(chat.color || '#6c47ff') + '">' + App.utils.initials(chat.name) + '</div>';
+
     pane().innerHTML =
       '<div id="cheader">' +
-        '<div class="avatar ' + (chat.grad || 'g2') + ' a44" data-info style="background:' + esc(chat.color || '#6c47ff') + '">' + App.utils.initials(chat.name) + '</div>' +
+        '<button class="iconbtn" id="hMobileBack" title="Назад">' + icon('back') + '</button>' +
+        avaHtml +
         '<div id="ctitle" data-info><div class="name">' + esc(chat.name) + '</div>' +
         '<div class="status" id="cstatus">' + esc(chat.status || chat.subtitle || '') + '</div></div>' +
         '<button class="iconbtn" id="hSearch" title="' + (en ? 'Search in chat' : 'Поиск в чате') + '">' + icon('search') + '</button>' +
@@ -44,6 +56,7 @@ App.components.chatview = (() => {
       '<div id="inputbar"></div>';
 
     pane().classList.add('open');
+    $('hMobileBack').addEventListener('click', closeMobile);
     document.querySelectorAll('[data-info]').forEach(el =>
       el.addEventListener('click', () => App.components.infopanel.open(chat.id)));
     $('hSearch').addEventListener('click', toggleSearch);
@@ -75,7 +88,7 @@ App.components.chatview = (() => {
     const tick = async () => {
       if (App.store.state.activeId !== chat.id) { stopPoll(); return; }
       try {
-        const d = await App.api.messages(chat.id, lastTs);
+        const d = await App.api.messages(chat.id, 0);
         const fresh = App.store.mergeMessages(chat.id, d.messages);
         for (const m of fresh) {
           appendMessage(chat, m);
@@ -89,7 +102,7 @@ App.components.chatview = (() => {
         const ty = await App.api.getTyping(chat.id);
         renderTyping(chat, (ty && ty.typing) || []);
         pollCount++;
-        if (pollCount % 4 === 0) {
+        if (pollCount % 3 === 0) {
           try {
             const keepFilter = App.store.state.filter;
             await App.store.loadChats();
@@ -99,7 +112,7 @@ App.components.chatview = (() => {
         }
       } catch (e) {}
     };
-    pollTimer = setInterval(tick, 2200);
+    pollTimer = setInterval(tick, 1800);
     tick();
   }
 
@@ -108,10 +121,8 @@ App.components.chatview = (() => {
     const en = isEn();
     if (!s || App.store.state.activeId !== chat.id) return;
     if (typing.length) {
-      const names = typing.map(t => (t.name || '').split(' ')[0]);
-      s.textContent = en
-        ? (names[0] + ' is typing...')
-        : (names[0] + ' печатает...');
+      const names = typing.map(t => (t.name || '').split(' '));
+      s.textContent = en ? (names + ' is typing...') : (names + ' печатает...');
       s.classList.add('typing');
     } else {
       s.textContent = chat.status || chat.subtitle || '';
@@ -125,7 +136,7 @@ App.components.chatview = (() => {
     const en = isEn();
     const menu = App.utils.el(
       '<div class="ctxmenu">' +
-        '<button data-a="info">' + icon('search') + (en ? 'Info & Members (+)' : 'Инфо и участники (+)') + '</button>' +
+        '<button data-a="info">' + icon('search') + (en ? 'Info & Settings' : 'Управление и участники') + '</button>' +
         '<button data-a="mute">' + icon('mute') + (chat.muted ? (en ? 'Unmute' : 'Включить звук') : (en ? 'Mute' : 'Без звука')) + '</button>' +
       '</div>');
     const r = e.currentTarget.getBoundingClientRect();
@@ -173,7 +184,7 @@ App.components.chatview = (() => {
   function wireBubble(bubbleEl, chat, m) {
     bubbleEl.addEventListener('contextmenu', e => {
       e.preventDefault();
-      msgMenu(e, chat, m, bubbleEl);
+      msgMenu(e, chat, m);
     });
   }
 
@@ -181,58 +192,65 @@ App.components.chatview = (() => {
     closeMenu();
     const en = isEn();
     const canCopy = m.kind === 'text' && m.text;
-    const own = m.from === (App.me && App.me.username) || m.out;
+    const own = m.out || (m.from === (App.me && App.me.username));
+    const isChannelAdmin = chat.type === 'channel' && chat.canPost;
+    const canDeleteForAll = own || isChannelAdmin;
+
     const menu = App.utils.el(
       '<div class="ctxmenu">' +
         '<button data-a="reply">' + icon('back') + (en ? 'Reply' : 'Ответить') + '</button>' +
         '<button data-a="forward">' + icon('send') + (en ? 'Forward' : 'Переслать') + '</button>' +
         (canCopy ? '<button data-a="copy">' + icon('check') + (en ? 'Copy text' : 'Копировать') + '</button>' : '') +
-        (own ? '<hr><button data-a="delete" class="danger">' + icon('close') + (en ? 'Delete' : 'Удалить') + '</button>' : '') +
+        '<hr>' +
+        '<button data-a="del_self" class="danger">' + icon('close') + (en ? 'Delete for me' : 'Удалить у себя') + '</button>' +
+        (canDeleteForAll ? '<button data-a="del_all" class="danger">' + icon('close') + (en ? 'Delete for everyone' : 'Удалить у всех') + '</button>' : '') +
       '</div>');
-    menu.style.left = Math.min(e.clientX, window.innerWidth - 210) + 'px';
-    menu.style.top = Math.min(e.clientY, window.innerHeight - 220) + 'px';
+    menu.style.left = Math.min(e.clientX, window.innerWidth - 220) + 'px';
+    menu.style.top = Math.min(e.clientY, window.innerHeight - 250) + 'px';
     $('overlay').appendChild(menu);
     menu.addEventListener('click', ev => {
       const btn = ev.target.closest('button');
       closeMenu();
       if (!btn) return;
       const a = btn.dataset.a;
+      const mid = m.mid || m.id;
       if (a === 'reply') {
         const sender = own ? (en ? 'You' : 'Вы') : (m.sender || chat.name);
-        App.components.inputbar.setReply({ mid: m.mid || m.id, sender, text: m.text || kindText(m) });
+        App.components.inputbar.setReply({ mid, sender, text: m.text || kindText(m) });
       }
       if (a === 'forward') openForwardPicker(m);
       if (a === 'copy') {
         try { navigator.clipboard.writeText(m.text); App.utils.toast(en ? 'Copied' : 'Скопировано'); }
         catch (err) {}
       }
-      if (a === 'delete') {
-        App.store.deleteMessage(chat.id, m.mid || m.id).then(() => {
-          renderMessages(chat);
-          App.components.chatlist.render(App.store.state.filter);
-        }).catch(err => App.utils.toast(err.message));
-      }
-    });
-  }
-
-  function kindText(m) {
-    return { image: '📷 Фото', file: '📎 ' + (m.fileName || 'Файл'),
-      voice: '🎤 Голосовое сообщение', sticker: m.text || 'Стикер' }[m.kind] || '';
-  }
-
-  function openForwardPicker(m) {
-    const back = $('modalback');
-    const en = isEn();
-    back.classList.add('open');
-    back.innerHTML =
-      '<div id="fwdmodal"><div class="fhead">' + (en ? 'Forward to…' : 'Переслать…') + '</div><div class="flist">' +
-      App.store.sortedChats().map(c =>
-        '<div class="frow" data-id="' + c.id + '">' + avatar(c, 'a44') +
-        '<span class="fname">' + esc(c.name) + '</span></div>').join('') +
-      '</div></div>';
-    back.querySelectorAll('.frow').forEach(row =>
-      row.addEventListener('click', async () => {
-        const to = App.store.getChat(row.dataset.id);
+      if (a === 'del_self' || a === 'del_all') {
+        const scope = a === 'del_self' ? 'self' : 'all';
+const el = document.querySelector('.msg[data-mid="' + mid + '"]');
+if (el) el.remove();
+App.api.deleteMessage(mid, scope).then(async () => {
+await App.store.loadMessages(chat.id);
+App.components.chatlist.render(App.store.state.filter);
+}).catch(err => App.utils.toast(err.message));
+}
+});
+}
+function kindText(m) {
+return { image: '📷 Фото', video: '🎬 Видео', file: '📎 ' + (m.fileName || 'Файл'),
+voice: '🎤 Голосовое сообщение', sticker: m.text || 'Стикер' }[m.kind] || '';
+}
+function openForwardPicker(m) {
+const back = $('modalback');
+const en = isEn();
+back.classList.add('open');
+back.innerHTML =
+'' + (en ? 'Forward to…' : 'Переслать…') + '' +
+App.store.sortedChats().map(c =>
+'' + avatar(c, 'a44') +
+'' + esc(c.name) + '').join('') +
+'';
+back.querySelectorAll('.frow').forEach(row =>
+row.addEventListener('click', async () => {
+const to = App.store.getChat(row.dataset.id);
 const payload = {
 kind: m.kind, text: m.text || '',
 forwardedFrom: (m.from === (App.me && App.me.username)) ? (App.me.name || 'Вы') : (m.sender || 'Пользователь')
