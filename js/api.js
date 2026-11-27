@@ -1,4 +1,4 @@
-/* ================= js/api.js — Looma Full Realtime Backend ================= */
+/* ================= js/api.js — Looma Full Backend ================= */
 'use strict';
 window.App = window.App || {};
 
@@ -6,18 +6,8 @@ App.api = (() => {
   const PB_URL = 'https://' + '45.15.126.220.sslip.io';
   const COL_URL = PB_URL + '/api/collections/looma_kv/records';
   const KEY = 'tg_token';
-  const HIDDEN_MSGS_KEY = 'looma_hidden_msgs';
   let token = null;
   try { token = localStorage.getItem(KEY); } catch (e) {}
-
-  function getHiddenMsgs() {
-    try { return JSON.parse(localStorage.getItem(HIDDEN_MSGS_KEY) || '[]'); } catch (e) { return []; }
-  }
-  function hideMsgLocally(mid) {
-    const list = getHiddenMsgs();
-    if (!list.includes(mid)) list.push(mid);
-    try { localStorage.setItem(HIDDEN_MSGS_KEY, JSON.stringify(list)); } catch (e) {}
-  }
 
   async function sha256(str) {
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -70,6 +60,7 @@ App.api = (() => {
     }
     m.sender = m.sender || m.senderName || m.from;
     m.out = (m.senderId === myId) || (myUsername && m.from === myUsername);
+    if (m.replyTo && !m.replyTo.text && !m.replyTo.sender) m.replyTo = null;
     return m;
   }
 
@@ -89,7 +80,7 @@ App.api = (() => {
   let _cache = null, _cacheTs = 0, _inFlight = null;
 
   async function pullAll(force) {
-    if (!force && _cache && Date.now() - _cacheTs < 250) return _cache;
+    if (!force && _cache && Date.now() - _cacheTs < 350) return _cache;
     if (_inFlight) return _inFlight;
     _inFlight = (async () => {
       try {
@@ -198,11 +189,10 @@ App.api = (() => {
 
   async function getChatMsgs(chatId, myId, myUsername) {
     const map = await pullAll(false);
-    const hidden = getHiddenMsgs();
     return Object.entries(map)
       .filter(([k]) => k.startsWith('msg__' + chatId + '__'))
       .map(([, v]) => normMsg(Object.assign({}, v.data), myId, myUsername))
-      .filter(m => !m.deleted && !hidden.includes(m.mid))
+      .filter(m => !m.deleted && !(m.hiddenFor && m.hiddenFor.includes(myId)))
       .sort((a, b) => (a.ts || 0) - (b.ts || 0));
   }
 
@@ -254,16 +244,16 @@ App.api = (() => {
       type: chat.type,
       name: title,
       title,
+      bio: chat.bio || '',
+      avatar,
       initials,
       color,
-      avatar,
-      bio: chat.bio || '',
-      ownerId: chat.ownerId || '',
-      admins,
-      canPost,
       online,
       subtitle,
       status: subtitle,
+      ownerId: chat.ownerId || '',
+      admins,
+      canPost,
       pinned: isSaved ? true : !!uState.pinned,
       muted: !!uState.muted,
       unreadCount,
@@ -279,12 +269,13 @@ App.api = (() => {
     if (method === 'POST' && path === '/auth/signup') {
       const data = typeof body === 'object' ? body : {};
       const name = String(data.name || '').trim();
-const username = cleanUsername(data.username);
-const contactRaw = String(data.contact || '').trim();
-const password = String(data.password || '').trim();
-const avatar = data.avatar || null;
-if (!name) throw new Error('Введите ваше имя или ник');
-if (!username || username.length < 3) throw new Error('Придумайте @username (от 3 символов)');
+      const username = cleanUsername(data.username);
+      const contactRaw = String(data.contact || '').trim();
+      const password = String(data.password || '').trim();
+      const avatar = data.avatar || null;
+
+      if (!name) throw new Error('Введите ваше имя');
+      if (!username || username.length < 3) throw new Error('Придумайте @username (от 3 символов)');
 if (name.toLowerCase() === username) throw new Error('@username не должен совпадать с именем');
 if (!contactRaw) throw new Error('Укажите номер телефона или почту');
 if (!password || password.length < 4) throw new Error('Пароль должен быть от 4 символов');
@@ -363,12 +354,10 @@ return { ok: true };
 }
 if (method === 'POST' && path === '/me/update') {
 const nextName = body.name ? String(body.name).trim() : me.name;
-const cleanU = body.username !== undefined ? cleanUsername(body.username) : me.username;
-if (!cleanU || cleanU.length < 3) throw new Error('Ник @username должен быть от 3 символов');
+const cleanU = body.username ? cleanUsername(body.username) : me.username;
+if (cleanU.length < 3) throw new Error('@username должен быть от 3 символов');
 if (nextName.toLowerCase() === cleanU) throw new Error('@username не должен совпадать с именем');
-if (users.some(u => u.id !== me.id && u.username === cleanU)) {
-throw new Error('Этот @username уже занят другим пользователем');
-}
+if (users.some(u => u.id !== me.id && u.username === cleanU)) throw new Error('Этот @username уже занят другим пользователем');
 me.name = nextName;
 me.username = cleanU;
 if (body.bio !== undefined) me.bio = String(body.bio).trim();
@@ -386,7 +375,7 @@ const list = users
 !qLower ||
 u.username.includes(qLower) ||
 (u.name || '').toLowerCase().includes(qLower) ||
-(u.phone && qPhone && u.phone.includes(qPhone))
+(u.phone && qPhone && u.phone === qPhone)
 ))
 .map(u => ({
 id: u.id,
@@ -401,7 +390,7 @@ return { users: list };
 }
 const allChats = await getChats();
 if (method === 'GET' && path === '/chats') {
-const myChats = allChats.filter(c => (c.members || []).includes(me.id));
+const myChats = allChats.filter(c => (c.members || []).includes(me.id) && !(c.deletedFor && c.deletedFor.includes(me.id)));
 const formatted = await Promise.all(myChats.map(async c => {
 const msgs = await getChatMsgs(c.id, me.id, me.username);
 return formatChatForUser(c, me, users, msgs);
@@ -420,6 +409,8 @@ const target = users.find(u => u.username === cleanUsername(body.username) || u.
 if (!target) throw new Error('Пользователь не найден');
 const existing = allChats.find(c => c.type === 'dm' && c.members.includes(me.id) && c.members.includes(target.id));
 if (existing) {
+existing.deletedFor = (existing.deletedFor || []).filter(id => id !== me.id);
+await putDoc('chat__' + existing.id, existing);
 const msgs = await getChatMsgs(existing.id, me.id, me.username);
 return { chat: formatChatForUser(existing, me, users, msgs) };
 }
@@ -458,18 +449,19 @@ return { chat: formatChatForUser(grp, me, users, []) };
 }
 if (method === 'POST' && path.startsWith('/messages/') && path.endsWith('/delete')) {
 const mid = path.split('/').at(2);
-if (body && body.forMeOnly) {
-hideMsgLocally(mid);
-return { ok: true };
-}
-const map = await pullAll(true);
+const scope = (body && body.scope) || 'all';
+const map = await pullAll(false);
 const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.data && (v.data.id === mid || v.data.mid === mid));
 if (entry) {
 const [docKey, wrap] = entry;
+if (scope === 'me') {
+wrap.data.hiddenFor = Array.from(new Set([...(wrap.data.hiddenFor || []), me.id]));
+} else {
 wrap.data.deleted = true;
 wrap.data.text = 'Сообщение удалено';
 wrap.data.kind = 'text';
 delete wrap.data.data;
+}
 await putDoc(docKey, wrap.data);
 }
 return { ok: true };
@@ -482,11 +474,16 @@ const sub = rest ? '/' + rest : '';
 const chat = allChats.find(c => c.id === chatId);
 if (!chat) throw new Error('Чат не найден');
 if (method === 'POST' && sub === '/delete') {
+if (chat.type === 'dm') {
+chat.deletedFor = Array.from(new Set([...(chat.deletedFor || []), me.id]));
+await putDoc('chat__' + chatId, chat);
+} else {
 await delDoc('chat__' + chatId);
+}
 return { ok: true };
 }
 if (method === 'POST' && sub === '/update') {
-if (body.name) chat.name = String(body.name).trim();
+if (body.name !== undefined) chat.name = String(body.name).trim() || chat.name;
 if (body.bio !== undefined) chat.bio = String(body.bio).trim();
 if (body.avatar !== undefined) chat.avatar = body.avatar;
 await putDoc('chat__' + chatId, chat);
@@ -501,15 +498,15 @@ await putDoc('chat__' + chatId, chat);
 }
 return { ok: true };
 }
-if (method === 'POST' && sub === '/member-role') {
+if (method === 'POST' && sub === '/role') {
 const uid = body.userId;
+const action = body.action; // 'admin' | 'unadmin' | 'kick'
 chat.admins = chat.admins || [chat.ownerId];
-if (body.action === 'admin') {
-if (chat.admins.includes(uid)) chat.admins = chat.admins.filter(x => x !== uid);
-else chat.admins.push(uid);
-} else if (body.action === 'kick') {
-chat.members = (chat.members || []).filter(x => x !== uid);
-chat.admins = (chat.admins || []).filter(x => x !== uid);
+if (action === 'admin' && !chat.admins.includes(uid)) chat.admins.push(uid);
+if (action === 'unadmin' && uid !== chat.ownerId) chat.admins = chat.admins.filter(id => id !== uid);
+if (action === 'kick' && uid !== chat.ownerId) {
+chat.members = chat.members.filter(id => id !== uid);
+chat.admins = chat.admins.filter(id => id !== uid);
 }
 await putDoc('chat__' + chatId, chat);
 return { ok: true };
@@ -522,8 +519,10 @@ return { messages: msgs, now: Date.now() };
 if (method === 'POST' && sub === '/messages') {
 const admins = chat.admins || (chat.ownerId ? [chat.ownerId] : []);
 if (chat.type === 'channel' && chat.ownerId !== me.id && !admins.includes(me.id)) {
-throw new Error('В канале могут писать только администраторы');
+throw new Error('Только администраторы могут публиковать посты в канале');
 }
+// Сразу сбрасываем статус "печатает..." при отправке сообщения
+await delDoc('typing__' + chatId + '__' + me.id);
 const ts = Date.now();
 const mid = 'm_' + ts + '_' + Math.floor(Math.random() * 9999);
 const msg = normMsg({
@@ -531,10 +530,10 @@ id: mid,
 mid: mid,
 chatId,
 from: me.username,
-sender: me.name,
+sender: chat.type === 'channel' ? chat.name : me.name,
 senderId: me.id,
 senderUsername: me.username,
-senderName: me.name,
+senderName: chat.type === 'channel' ? chat.name : me.name,
 color: me.color,
 out: true,
 ts,
@@ -548,9 +547,7 @@ replyTo: body.replyTo || null,
 forwardedFrom: body.forwardedFrom || null,
 status: 'read'
 }, me.id, me.username);
-await putDoc('msg__' + chatId + '' + mid, msg);
-// Сразу сбрасываем индикатор "печатает..." после отправки
-await delDoc('typing' + chatId + '__' + me.id);
+await putDoc('msg__' + chatId + '__' + mid, msg);
 return { message: msg };
 }
 if (method === 'POST' && sub === '/read') {
@@ -564,9 +561,9 @@ await putDoc('typing__' + chatId + '__' + me.id, { userId: me.id, name: me.name,
 return { ok: true };
 }
 if (method === 'GET' && sub === '/typing') {
-const map = await pullAll(true);
+const map = await pullAll(false);
 const activeTypers = Object.entries(map)
-.filter(([k, v]) => k.startsWith('typing__' + chatId + '__') && v && v.data && v.data.userId !== me.id && Date.now() - (v.data.ts || 0) < 3000)
+.filter(([k, v]) => k.startsWith('typing__' + chatId + '__') && v && v.data && v.data.userId !== me.id && Date.now() - (v.data.ts || 0) < 3500)
 .map(([, v]) => ({ name: v.data.name }));
 return { typing: activeTypers };
 }
@@ -582,14 +579,14 @@ username: u.username,
 avatar: u.avatar || null,
 initials: u.initials,
 color: u.color,
-isOwner: chat.ownerId === u.id,
+isOwner: u.id === chat.ownerId,
 isAdmin: admins.includes(u.id),
 online: Date.now() - (u.lastSeen || 0) < 45000
 }));
 const msgs = await getChatMsgs(chatId, me.id, me.username);
 const media = msgs.filter(m => (m.kind === 'image' || m.kind === 'video') && m.data).map(m => ({ id: m.id, kind: m.kind, data: m.data }));
 const files = msgs.filter(m => m.kind === 'file').map(m => ({ id: m.id, fileName: m.fileName, fileSize: m.fileSize }));
-return { chat, members, media, files, canManage: chat.ownerId === me.id || admins.includes(me.id) };
+return { chat, members, media, files, isAdmin: chat.ownerId === me.id || admins.includes(me.id) };
 }
 if (method === 'POST' && (sub === '/pin' || sub === '/mute')) {
 const field = sub === '/pin' ? 'pinned' : 'muted';
@@ -613,10 +610,10 @@ deleteAccount: () => req('POST', '/me/delete'),
 updateProfile: (patch) => req('POST', '/me/update', patch),
 chats: async () => ({ chats: (await req('GET', '/chats')).chats.map(normChat) }),
 createChat: async (payload) => ({ chat: normChat((await req('POST', '/chats', payload)).chat) }),
-deleteChat: (chatId) => req('POST', '/chats/' + chatId + '/delete'),
 updateChat: (chatId, patch) => req('POST', '/chats/' + chatId + '/update', patch),
+deleteChat: (chatId) => req('POST', '/chats/' + chatId + '/delete'),
 addMember: (chatId, username) => req('POST', '/chats/' + chatId + '/members', { username }),
-setMemberRole: (chatId, userId, action) => req('POST', '/chats/' + chatId + '/member-role', { userId, action }),
+setMemberRole: (chatId, userId, action) => req('POST', '/chats/' + chatId + '/role', { userId, action }),
 messages: async (id, after) => {
 const d = await req('GET', '/chats/' + id + '/messages' + (after ? '?after=' + after : ''));
 const myId = token;
@@ -628,7 +625,7 @@ send: async (id, msg) => ({ message: normMsg((await req('POST', '/chats/' + id +
 markRead: (id) => req('POST', '/chats/' + id + '/read'),
 typing: (id) => req('POST', '/chats/' + id + '/typing'),
 getTyping: (id) => req('GET', '/chats/' + id + '/typing'),
-deleteMessage: (mid, opts) => req('POST', '/messages/' + mid + '/delete', opts || {}),
+deleteMessage: (mid, scope) => req('POST', '/messages/' + mid + '/delete', { scope }),
 userSearch: (q) => req('GET', '/users/search?q=' + encodeURIComponent(q)),
 chatInfo: (id) => req('GET', '/chats/' + id + '/info'),
 pin: (id) => req('POST', '/chats/' + id + '/pin'),
