@@ -1,50 +1,32 @@
-/* ================= css/chat.css — Looma Complete Theme, Animations & Mobile ================= */
-@keyframes msgAppear {
-  from { opacity: 0; transform: translateY(10px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes popFade {
-  from { opacity: 0; transform: scale(0.94) translateY(6px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
+/* ================= css/chat.css — Looma Conversation View ================= */
 #cheader{background:var(--panel);display:flex;align-items:center;gap:12px;padding:10px 16px;
-  border-bottom:1px solid var(--border);flex-shrink:0;transition:background .25s ease}
-[data-theme="light"] #cheader{background:#ffffff;color:#111827}
-#cheader .avatar{cursor:pointer;transition:transform .2s ease}
-#cheader .avatar:hover{transform:scale(1.06)}
+  border-bottom:1px solid var(--border);flex-shrink:0}
+#cheader .avatar{cursor:pointer;overflow:hidden}
 #ctitle{flex:1;min-width:0;cursor:pointer}
 #ctitle .name{font-weight:700;font-size:16px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-[data-theme="light"] #ctitle .name{color:#111827 !important}
 #ctitle .status{font-size:13px;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #ctitle .status.typing{font-style:italic}
-#cheader .iconbtn{color:var(--grey);transition:transform .18s ease,background .18s ease}
-#cheader .iconbtn:active{transform:scale(0.9)}
-#hMobileBack{display:none}
+#cheader .iconbtn{color:var(--grey)}
 
-/* поиск внутри чата */
 #chatsearch{display:none;align-items:center;gap:8px;background:var(--panel);padding:8px 16px;
-  border-bottom:1px solid var(--border);animation:popFade .2s ease}
+  border-bottom:1px solid var(--border)}
 #chatsearch.open{display:flex}
 #chatsearch input{flex:1;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:18px;padding:9px 16px;
   font-size:14px;outline:none;font-family:inherit}
 #chatsearch .count{font-size:12px;color:var(--grey);white-space:nowrap}
 
-/* красивый чистый градиентный фон чата без клетки */
-#messages{flex:1;overflow-y:auto;padding:16px 20px;position:relative;
+#messages{flex:1;overflow-y:auto;padding:16px 24px;position:relative;
   background:radial-gradient(circle at 20% 15%, #191d2e 0%, #0f121c 65%, #0b0d14 100%) !important}
 [data-theme="light"] #messages{
   background:linear-gradient(160deg, #eef2ff 0%, #f8fafc 55%, #e2e8f0 100%) !important}
 
-/* сообщения ближе к левому и правому краям экрана */
 #msgsInner{width:100%;max-width:100%;margin:0;display:flex;flex-direction:column;gap:8px}
 .datebubble{align-self:center;background:rgba(128,138,160,.2);color:var(--text);font-size:12px;font-weight:600;
-  padding:5px 14px;border-radius:14px;margin:8px 0;border:1px solid var(--border);animation:popFade .25s ease}
+  padding:5px 14px;border-radius:14px;margin:8px 0;border:1px solid var(--border)}
 
-/* ---------- пузыри сообщений с чёткой обводкой и плавной анимацией ---------- */
+/* ---------- message bubbles ---------- */
 .msg{max-width:68%;padding:9px 13px 7px;border-radius:16px;font-size:14.5px;line-height:1.45;
-  position:relative;box-shadow:0 4px 14px rgba(0,0,0,.14);word-wrap:break-word;overflow-wrap:anywhere;
-  animation:msgAppear .24s cubic-bezier(.22,1,.36,1)}
+  position:relative;box-shadow:0 4px 14px rgba(0,0,0,.14);word-wrap:break-word;overflow-wrap:anywhere}
 
 .msg.in{background:#1b2030;color:#f3f4f6;align-self:flex-start;border-top-left-radius:4px;
   border:1px solid rgba(255,255,255,.12)}
@@ -55,10 +37,10 @@
 [data-theme="light"] .msg.out{background:linear-gradient(135deg,#6c47ff,#3b82f6);color:#ffffff;border:1px solid rgba(79,70,229,.35)}
 
 .msg .sender{font-weight:700;font-size:13px;margin-bottom:3px;cursor:pointer}
-.msg .fwd{font-size:12px;opacity:.82;font-style:italic;margin-bottom:4px}
+.msg .fwd{font-size:12px;opacity:.8;font-style:italic;margin-bottom:4px}
 .msg .body{display:inline;white-space:pre-wrap;color:inherit}
 .msg .meta{display:flex;justify-content:flex-end;align-items:center;gap:4px;font-size:11px;
-  opacity:.78;margin-top:4px;float:right;margin-left:10px;user-select:none}
+  opacity:.75;margin-top:4px;float:right;margin-left:10px;user-select:none}
 .msg .clear{clear:both}
 .msg.hl{outline:2px solid var(--accent);outline-offset:2px}
 
@@ -71,9 +53,8 @@
 .ticks.sent{opacity:.8}
 .ticks.read{color:#00e5ff}
 
-.msg .pic{display:block;max-width:320px;width:100%;border-radius:10px;margin:0 0 6px;cursor:pointer;transition:transform .2s ease}
-.msg .pic:hover{transform:scale(1.01)}
-.msg .file{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,.16);
+.msg .pic{display:block;max-width:320px;width:100%;border-radius:10px;margin:0 0 6px;cursor:pointer}
+.msg .file{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,.14);
   border-radius:10px;padding:10px 12px;margin-bottom:4px;min-width:220px;text-decoration:none;color:inherit}
 .msg .file .fic{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);color:inherit;
   display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -81,52 +62,18 @@
 .msg .file .fsize{font-size:11.5px;opacity:.8}
 .msg .voice{display:flex;align-items:center;gap:10px;min-width:220px;padding:4px 0}
 .msg .voice .vplay{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.22);color:inherit;
-  border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s ease}
-.msg .voice .vplay:active{transform:scale(0.9)}
+  border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .msg .voice .vwave{display:flex;align-items:center;gap:2px;height:26px;flex:1}
-.msg .voice .vwave i{width:3px;background:currentColor;border-radius:2px;opacity:.45;transition:opacity .15s ease}
-.msg .voice .vwave i.played{opacity:1}
+.msg .voice .vwave i{width:3px;background:currentColor;border-radius:2px;opacity:.85;transition:opacity .15s}
 .msg .voice .vdur{font-size:12px;opacity:.85}
 .msg.stickerbox{background:none !important;border:none !important;box-shadow:none !important;padding:0}
 .msg .sticker{font-size:64px;line-height:1}
 
-/* ---------- нижняя панель ввода без белой рамки + тёмное меню скрепки ---------- */
-#inputbar{background:var(--panel) !important;border-top:1px solid var(--border) !important;color:var(--text) !important;padding:10px 14px !important}
-[data-theme="light"] #inputbar{background:#ffffff !important;color:#111827 !important}
-#msgInput{background:var(--bg) !important;color:var(--text) !important;border:1px solid var(--border) !important;border-radius:20px !important;padding:10px 16px !important}
-[data-theme="light"] #msgInput{background:#f1f5f9 !important;color:#111827 !important}
-#attachmenu, #emojipick{background:var(--panel) !important;color:var(--text) !important;border:1px solid var(--border) !important;box-shadow:0 12px 32px rgba(0,0,0,.4) !important;animation:popFade .2s ease}
-[data-theme="light"] #attachmenu, [data-theme="light"] #emojipick{background:#ffffff !important;color:#111827 !important}
-#attachmenu button{color:var(--text) !important;transition:background .15s ease}
-[data-theme="light"] #attachmenu button{color:#111827 !important}
-
-/* контекстное меню */
-.ctxmenu{position:fixed;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.38);
-  padding:6px 0;min-width:205px;z-index:200;animation:popFade .18s ease}
-[data-theme="light"] .ctxmenu{background:#ffffff;color:#111827}
+.ctxmenu{position:fixed;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35);
+  padding:6px 0;min-width:200px;z-index:200;animation:loomaPopIn .16s ease both}
 .ctxmenu button{display:flex;align-items:center;gap:12px;width:100%;border:none;background:none;
-  padding:10px 16px;font-size:14px;cursor:pointer;color:var(--text);text-align:left;transition:background .15s ease}
-[data-theme="light"] .ctxmenu button{color:#111827}
+  padding:10px 16px;font-size:14px;cursor:pointer;color:var(--text);text-align:left}
 .ctxmenu button:hover{background:var(--hover)}
 .ctxmenu button.danger{color:var(--danger)}
 .ctxmenu button .ic{width:18px;height:18px;color:var(--grey)}
 .ctxmenu hr{border:none;border-top:1px solid var(--border);margin:4px 0}
-
-/* ---------- полная мобильная адаптация ---------- */
-@media (max-width: 768px) {
-  body, #app { height: 100dvh !important; overflow: hidden !important; }
-  #sidebar { width: 100% !important; max-width: 100% !important; }
-  #chatpane {
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100% !important;
-    height: 100dvh !important;
-    z-index: 50 !important;
-    transform: translateX(100%);
-    transition: transform 0.28s cubic-bezier(.22,1,.36,1) !important;
-  }
-  #chatpane.open { transform: translateX(0) !important; }
-  #hMobileBack { display: flex !important; }
-  #messages { padding: 12px 10px !important; }
-  .msg { max-width: 82% !important; }
-}
