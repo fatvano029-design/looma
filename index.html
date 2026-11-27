@@ -131,7 +131,7 @@
   setTimeout(() => {
     const sp = document.getElementById('loomaSplash');
     if (sp) sp.classList.add('hide');
-  }, 1800);
+  }, 900);
 
   (function () {
     const v = Date.now();
@@ -151,19 +151,21 @@
       'js/components/settings.js',
       'js/app.js'
     ];
-    function loadNext(i) {
-      if (i >= files.length) {
-        if (window.App && App.init && document.readyState !== 'loading') App.init();
-        return;
-      }
+    let loaded = 0;
+    files.forEach(src => {
       const s = document.createElement('script');
-      s.src = files[i] + '?v=' + v;
-      s.onload = () => loadNext(i + 1);
-      s.onerror = () => loadNext(i + 1);
+      s.src = src + '?v=' + v;
+      s.async = false; // браузер качает все 14 файлов параллельно, но выполняет строго по порядку!
+      s.onload = s.onerror = () => {
+        loaded++;
+        if (loaded === files.length && window.App && App.init && document.readyState !== 'loading') {
+          App.init();
+        }
+      };
       document.body.appendChild(s);
-    }
-    loadNext(0);
+    });
   })();
 </script>
 </body>
 </html>
+
