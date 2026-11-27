@@ -77,14 +77,16 @@ App.api = (() => {
     } catch (e) {}
   }
 
-  let _cache = null, _cacheTs = 0, _inFlight = null;
+  let _cache = null, _cacheTs = 0, _inFlight = null, _chunksLoaded = false;
 
-  async function pullAll(force) {
-    if (!force && _cache && Date.now() - _cacheTs < 900) return _cache;
+  async function pullAll(force, withChunks) {
+    const needChunks = !!withChunks && !_chunksLoaded;
+    if (!force && !needChunks && _cache && Date.now() - _cacheTs < 1200) return _cache;
     if (_inFlight) return _inFlight;
     _inFlight = (async () => {
       try {
-        const res = await fetch(COL_URL + '?perPage=500&_t=' + Date.now());
+        const filter = _chunksLoaded ? "&filter=(k!~'chunk__')" : '';
+        const res = await fetch(COL_URL + '?perPage=500' + filter + '&_t=' + Date.now());
         if (!res.ok) throw new Error('Сервер отвечает кодом: ' + res.status);
         const json = await res.json();
         const rawItems = json.items || [];
@@ -98,16 +100,27 @@ App.api = (() => {
             chunksMap[baseKey][idx] = item.v || '';
           }
         });
+        if (!_chunksLoaded && rawItems.length > 0) _chunksLoaded = true;
 
-        const map = {};
+        const map = _cache ? Object.assign({}, _cache) : {};
+        if (!filter) {
+          const freshKeys = new Set(rawItems.map(x => x.k));
+          Object.keys(map).forEach(k => { if (!freshKeys.has(k)) delete map[k]; });
+        }
+
         rawItems.forEach(item => {
           if (!item.k || item.k.startsWith('chunk__')) return;
           if (item.v) {
             try {
               const parsed = JSON.parse(item.v);
-              if (parsed && parsed._chunked && chunksMap[item.k]) {
-                parsed.data = chunksMap[item.k].join('');
-                delete parsed._chunked;
+              if (parsed && parsed._chunked) {
+                if (chunksMap[item.k]) {
+                  parsed.data = chunksMap[item.k].join('');
+                  delete parsed._chunked;
+                } else if (map[item.k] && map[item.k].data && map[item.k].data.data) {
+                  parsed.data = map[item.k].data.data;
+                  delete parsed._chunked;
+                }
               }
               map[item.k] = { recId: item.id, data: parsed };
             } catch (e) {}
@@ -120,6 +133,8 @@ App.api = (() => {
         _inFlight = null;
       }
     })();
+    return _inFlight;
+  }
     return _inFlight;
   }
 
