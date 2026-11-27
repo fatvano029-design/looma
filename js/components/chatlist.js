@@ -1,4 +1,4 @@
-/* ================= components/chatlist.js — Left Panel + Global User Search ================= */
+/* ================= components/chatlist.js — Left Panel + People & Channels Search ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
@@ -6,6 +6,7 @@ App.components = App.components || {};
 App.components.chatlist = (() => {
   const { $, esc, icon, initials } = App.utils;
   let globalUsers = [];
+  let globalRooms = [];
   let searchTimer = null;
 
   function isEn() { return localStorage.getItem('looma_lang') === 'en'; }
@@ -23,7 +24,7 @@ App.components.chatlist = (() => {
     if (lm.from === (App.me && App.me.username) && chat.type !== 'channel')
       s = '<span class="ticks">✓✓</span> ' + s;
     if (chat.type === 'group' && lm.from !== (App.me && App.me.username) && lm.sender)
-      s = '<b>' + esc(lm.sender.split(' ')[0]) + ':</b> ' + s;
+      s = '<b>' + esc(lm.sender.split(' ')) + ':</b> ' + s;
     return '<span class="snippet">' + s + '</span>';
   }
 
@@ -64,10 +65,10 @@ App.components.chatlist = (() => {
         '<button data-a="pin">' + icon('pin') + (chat.pinned ? (en ? 'Unpin' : 'Открепить') : (en ? 'Pin to top' : 'Закрепить')) + '</button>' +
         '<button data-a="mute">' + icon('mute') + (chat.muted ? (en ? 'Unmute' : 'Включить звук') : (en ? 'Mute' : 'Без звука')) + '</button>' +
         '<button data-a="read">' + icon('check-double') + (en ? 'Mark as read' : 'Прочитано') + '</button>' +
-        (canDel ? '<hr><button data-a="delchat" class="danger">' + icon('close') + (en ? 'Delete chat' : 'Удалить чат') + '</button>' : '') +
+        (canDel ? '<hr><button data-a="delchat" class="danger">' + icon('close') + (en ? 'Delete for both' : 'Удалить чат у обоих') + '</button>' : '') +
       '</div>');
-    menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
-    menu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+    menu.style.left = Math.min(e.clientX, window.innerWidth - 210) + 'px';
+    menu.style.top = Math.min(e.clientY, window.innerHeight - 210) + 'px';
     $('overlay').appendChild(menu);
     menu.addEventListener('click', async ev => {
       const a = ev.target.closest('button') && ev.target.closest('button').dataset.a;
@@ -77,8 +78,8 @@ App.components.chatlist = (() => {
       else if (a === 'mute') App.store.toggleMute(chat.id).then(done);
       else if (a === 'read') App.store.clearUnread(chat.id).then(done);
       else if (a === 'delchat') {
-        if (!confirm(en ? 'Delete this chat?' : 'Удалить этот чат?')) return;
-        await App.api.deleteChat(chat.id);
+        if (!confirm(en ? 'Delete this chat for you and your peer?' : 'Удалить этот чат у себя и у собеседника?')) return;
+        await App.api.deleteChat(chat.id, 'all');
         await App.store.loadChats();
         if (App.store.state.activeId === chat.id) App.components.settings.close();
         done();
@@ -95,9 +96,13 @@ App.components.chatlist = (() => {
     if (!list) return;
     list.innerHTML = '';
 
-    const chats = App.store.sortedChats().filter(c =>
-      !q || c.name.toLowerCase().includes(q) ||
-      App.store.getMessages(c.id).some(m => (m.text || '').toLowerCase().includes(q)));
+    const allMy = App.store.sortedChats();
+    const chats = !q
+      ? allMy
+      : allMy.filter(c =>
+          c.name.toLowerCase().includes(q) ||
+          (c.subtitle || '').toLowerCase().includes(q) ||
+          App.store.getMessages(c.id).some(m => (m.text || '').toLowerCase().includes(q)));
 
     const pinned = chats.filter(c => c.pinned), rest = chats.filter(c => !c.pinned);
     if (pinned.length) {
@@ -106,9 +111,9 @@ App.components.chatlist = (() => {
     }
     rest.forEach(c => list.appendChild(mountRow(c)));
 
-    // Глобальный поиск пользователей по @username и номеру телефона
+    // Глобальный поиск пользователей по @username и телефону
     if (q && globalUsers.length) {
-      list.appendChild(App.utils.el('<div class="pin-sep">' + (en ? 'Global people search' : 'Найденные люди') + '</div>'));
+      list.appendChild(App.utils.el('<div class="pin-sep">' + (en ? 'People' : 'Найденные люди') + '</div>'));
       globalUsers.forEach(u => {
         const uRow = App.utils.el(
           '<div class="chat">' +
@@ -122,6 +127,7 @@ App.components.chatlist = (() => {
             const d = await App.api.createChat({ type: 'dm', username: u.username });
             $('search').value = '';
             globalUsers = [];
+            globalRooms = [];
             await App.store.loadChats();
             render('');
             App.components.chatview.open(d.chat.id);
@@ -133,8 +139,38 @@ App.components.chatlist = (() => {
       });
     }
 
-    if (!chats.length && (!q || !globalUsers.length)) {
-      list.innerHTML = '<div class="empty-list">' + (en ? 'No chats or users found' : 'Ничего не найдено') + '</div>';
+    // Глобальный поиск каналов и групп
+    if (q && globalRooms.length) {
+      list.appendChild(App.utils.el('<div class="pin-sep">' + (en ? 'Channels & Groups' : 'Каналы и группы') + '</div>'));
+      globalRooms.forEach(r => {
+        const rRow = App.utils.el(
+          '<div class="chat">' +
+            avaHtml(r, 'a50') +
+            '<div class="info"><div class="top"><span class="name">' + esc(r.name) + '</span></div>' +
+            '<div class="bottom"><span class="snippet" style="color:var(--accent)">' +
+              (r.type === 'channel' ? (en ? 'Channel • Join' : 'Канал • Подписаться') : (en ? 'Group • Join' : 'Группа • Вступить')) +
+            '</span></div></div>' +
+          '</div>'
+        );
+        rRow.addEventListener('click', async () => {
+          try {
+            const d = await App.api.joinChat(r.id);
+            $('search').value = '';
+            globalUsers = [];
+            globalRooms = [];
+            await App.store.loadChats();
+            render('');
+            App.components.chatview.open(d.chat.id);
+          } catch (err) {
+            App.utils.toast(err.message);
+          }
+        });
+        list.appendChild(rRow);
+      });
+    }
+
+    if (!chats.length && (!q || (!globalUsers.length && !globalRooms.length))) {
+      list.innerHTML = '<div class="empty-list">' + (en ? 'Nothing found' : 'Ничего не найдено') + '</div>';
     }
   }
 
@@ -153,6 +189,7 @@ App.components.chatlist = (() => {
       const trimmed = val.trim();
       if (!trimmed) {
         globalUsers = [];
+        globalRooms = [];
         render('');
         return;
       }
@@ -160,9 +197,10 @@ App.components.chatlist = (() => {
         try {
           const res = await App.api.userSearch(trimmed);
           globalUsers = res.users || [];
+          globalRooms = res.rooms || [];
           render(val);
         } catch (err) {}
-      }, 250);
+      }, 220);
     });
   }
 
