@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -16,99 +16,59 @@
 <link rel="stylesheet" href="css/panels.css">
 <link rel="stylesheet" href="css/auth.css">
 <style>
+  /* Сплэш-экран */
   #loomaSplash {
-    position: fixed;
-    inset: 0;
-    z-index: 10000;
-    background: #0d0f17;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
+    position: fixed; inset: 0; z-index: 10000; background: #0d0f17;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
     transition: opacity 0.35s ease, visibility 0.35s ease;
   }
-  #loomaSplash.hide {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-  }
+  #loomaSplash.hide { opacity: 0; visibility: hidden; pointer-events: none; }
   .looma-splash-logo {
-    width: 76px;
-    height: 76px;
-    border-radius: 24px;
+    width: 76px; height: 76px; border-radius: 24px;
     background: linear-gradient(135deg, #00e676, #448aff);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 38px;
-    font-weight: 800;
-    color: #fff;
-    font-family: system-ui, -apple-system, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 38px; font-weight: 800; color: #fff; font-family: system-ui, sans-serif;
     box-shadow: 0 12px 36px rgba(68, 138, 255, 0.35);
     animation: loomaPulse 1.4s ease-in-out infinite;
   }
-  .looma-splash-text {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 14px;
-    font-family: system-ui, -apple-system, sans-serif;
-  }
-  @keyframes loomaPulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.06); }
-  }
+  .looma-splash-text { color: rgba(255, 255, 255, 0.7); font-size: 14px; font-family: system-ui, sans-serif; }
+  @keyframes loomaPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
 
-  /* Красивый чистый градиентный фон чата вместо тёмной клетки */
-  #chatpane, #msglist, .messages, .chat-body {
-    background-image: none !important;
-  }
-  [data-theme="dark"] #chatpane {
-    background: radial-gradient(circle at 20% 15%, #191d2e 0%, #0f121c 65%, #0b0d14 100%) !important;
-  }
-  [data-theme="light"] #chatpane {
-    background: linear-gradient(160deg, #eef2ff 0%, #f8fafc 55%, #e2e8f0 100%) !important;
-  }
+  /* Анимации */
+  @keyframes msgSlideUp { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes modalFade { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+  .msg { animation: msgSlideUp 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+  #modalback.open > div { animation: modalFade 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+  .iconbtn, button { transition: transform 0.15s ease, background 0.2s ease, opacity 0.2s ease; }
+  .iconbtn:active, button:active { transform: scale(0.93); }
 
-  /* Фикс светлой темы: названия чатов, текст сообщений и пузыри */
-  [data-theme="light"] .chat-title,
-  [data-theme="light"] .chat-name,
-  [data-theme="light"] .row-title,
-  [data-theme="light"] #chatlist .title,
-  [data-theme="light"] #chatlist .name,
-  [data-theme="light"] .chatitem .ctitle {
-    color: #111827 !important;
-    font-weight: 700 !important;
-  }
-  [data-theme="light"] .chatitem,
-  [data-theme="light"] .chat-row {
-    background: #ffffff !important;
-    border: 1px solid #d1d5db !important;
-    color: #111827 !important;
-  }
-  [data-theme="light"] .bubble,
-  [data-theme="light"] .msg-bubble {
-    color: #111827 !important;
-    border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  }
-  [data-theme="light"] .msg.out .bubble,
-  [data-theme="light"] .bubble.out {
-    background: #e0e7ff !important;
-    color: #111827 !important;
-  }
-  [data-theme="light"] .msg.in .bubble,
-  [data-theme="light"] .bubble.in {
-    background: #ffffff !important;
-    color: #111827 !important;
-  }
-  .chatitem, .chat-row {
-    border: 1px solid rgba(130, 140, 160, 0.22) !important;
-    border-radius: 14px !important;
-    margin: 4px 8px !important;
-    transition: border-color 0.2s ease, background 0.2s ease !important;
-  }
-  .chatitem:hover, .chatitem.active,
-  .chat-row:hover, .chat-row.active {
-    border-color: var(--accent, #7c4dff) !important;
+  /* Фикс светлой темы: текст, шапка, меню скрепки */
+  [data-theme="light"] #cheader, [data-theme="light"] #chatsearch { background: #ffffff !important; color: #111827 !important; }
+  [data-theme="light"] #ctitle .name, [data-theme="light"] .chat .name { color: #111827 !important; font-weight: 700 !important; }
+  [data-theme="light"] .chat { background: #ffffff !important; border: 1px solid #d1d5db !important; color: #111827 !important; }
+  [data-theme="light"] #inputbar, [data-theme="light"] #attachmenu, [data-theme="light"] #emojipick { background: #ffffff !important; color: #111827 !important; border-color: #d1d5db !important; }
+  [data-theme="light"] #msgInput { background: #f1f5f9 !important; color: #111827 !important; }
+
+  /* Фикс тёмной темы: панель ввода и меню скрепки */
+  [data-theme="dark"] #inputbar, [data-theme="dark"] #attachmenu, [data-theme="dark"] #emojipick { background: #161926 !important; color: #ffffff !important; border-color: rgba(255,255,255,0.08) !important; }
+  [data-theme="dark"] #msgInput { background: #0f111a !important; color: #ffffff !important; }
+  [data-theme="dark"] #attachmenu button { color: #ffffff !important; }
+  [data-theme="dark"] #attachmenu button:hover { background: rgba(255,255,255,0.08) !important; }
+
+  /* Карточки чатов */
+  .chat { border: 1px solid rgba(130, 140, 160, 0.18) !important; border-radius: 14px !important; margin: 4px 8px !important; transition: border-color 0.2s ease, background 0.2s ease !important; }
+  .chat:hover, .chat.active { border-color: var(--accent, #7c4dff) !important; }
+
+  /* Адаптация под телефон */
+  #app { height: 100dvh !important; }
+  #mobBackBtn { display: none; }
+  @media (max-width: 768px) {
+    #sidebar { width: 100% !important; max-width: 100% !important; }
+    #chatpane { position: fixed !important; inset: 0 !important; z-index: 50 !important; transform: translateX(100%); transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+    #chatpane.open { transform: translateX(0); }
+    #mobBackBtn { display: flex !important; }
+    #messages { padding: 12px 10px !important; }
+    .msg { max-width: 82% !important; }
   }
 </style>
 </head>
@@ -117,7 +77,6 @@
   <div class="looma-splash-logo">L</div>
   <div class="looma-splash-text">Загрузка Looma...</div>
 </div>
-
 <svg xmlns="http://w3.org" style="display:none" aria-hidden="true">
   <symbol id="icon-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
   <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></symbol>
@@ -147,11 +106,11 @@
       <button id="menuBtn" class="iconbtn" title="Меню Looma"></button>
       <div id="searchWrap">
         <span class="sic"></span>
-        <input id="search" placeholder="Поиск" autocomplete="off">
+        <input id="search" placeholder="Поиск по @username или телефону" autocomplete="off">
       </div>
     </div>
     <div id="chatlist"></div>
-    <button id="newChatBtn" class="iconbtn fab" title="Создать"></button>
+    <button id="newChatBtn" class="iconbtn fab" title="Создать группу или канал"></button>
   </aside>
 
   <main id="chatpane">
@@ -169,6 +128,11 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
   }
+  setTimeout(() => {
+    const sp = document.getElementById('loomaSplash');
+    if (sp) sp.classList.add('hide');
+  }, 1800);
+
   (function () {
     const v = Date.now();
     const files = [
@@ -185,22 +149,21 @@
       'js/components/inputbar.js',
       'js/components/infopanel.js',
       'js/components/settings.js',
-'js/app.js'
-];
-function loadNext(i) {
-if (i >= files.length) {
-if (window.App && App.init && document.readyState !== 'loading') App.init();
-return;
-}
-const s = document.createElement('script');
-s.src = files[i] + '?v=' + v;
-s.onload = () => loadNext(i + 1);
-s.onerror = () => loadNext(i + 1);
-document.body.appendChild(s);
-}
-loadNext(0);
+      'js/app.js'
+    ];
+    function loadNext(i) {
+      if (i >= files.length) {
+        if (window.App && App.init && document.readyState !== 'loading') App.init();
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = files[i] + '?v=' + v;
+      s.onload = () => loadNext(i + 1);
+      s.onerror = () => loadNext(i + 1);
+      document.body.appendChild(s);
+    }
+    loadNext(0);
   })();
 </script>
 </body>
 </html>
-
