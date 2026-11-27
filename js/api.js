@@ -1,4 +1,4 @@
-/* ================= js/api.js — Fast Sync, Phone+Email, Channel Search & Mutual Chat Delete ================= */
+/* ================= js/api.js — Looma Complete Backend ================= */
 'use strict';
 window.App = window.App || {};
 
@@ -77,16 +77,14 @@ App.api = (() => {
     } catch (e) {}
   }
 
-  let _cache = null, _cacheTs = 0, _inFlight = null, _chunksLoaded = false;
+  let _cache = null, _cacheTs = 0, _inFlight = null;
 
-  async function pullAll(force, withChunks) {
-    const needChunks = !!withChunks && !_chunksLoaded;
-    if (!force && !needChunks && _cache && Date.now() - _cacheTs < 1200) return _cache;
+  async function pullAll(force) {
+    if (!force && _cache && Date.now() - _cacheTs < 900) return _cache;
     if (_inFlight) return _inFlight;
     _inFlight = (async () => {
       try {
-        const filter = _chunksLoaded ? "&filter=(k!~'chunk__')" : '';
-        const res = await fetch(COL_URL + '?perPage=500' + filter + '&_t=' + Date.now());
+        const res = await fetch(COL_URL + '?perPage=500&_t=' + Date.now());
         if (!res.ok) throw new Error('Сервер отвечает кодом: ' + res.status);
         const json = await res.json();
         const rawItems = json.items || [];
@@ -100,27 +98,16 @@ App.api = (() => {
             chunksMap[baseKey][idx] = item.v || '';
           }
         });
-        if (!_chunksLoaded && rawItems.length > 0) _chunksLoaded = true;
 
-        const map = _cache ? Object.assign({}, _cache) : {};
-        if (!filter) {
-          const freshKeys = new Set(rawItems.map(x => x.k));
-          Object.keys(map).forEach(k => { if (!freshKeys.has(k)) delete map[k]; });
-        }
-
+        const map = {};
         rawItems.forEach(item => {
           if (!item.k || item.k.startsWith('chunk__')) return;
           if (item.v) {
             try {
               const parsed = JSON.parse(item.v);
-              if (parsed && parsed._chunked) {
-                if (chunksMap[item.k]) {
-                  parsed.data = chunksMap[item.k].join('');
-                  delete parsed._chunked;
-                } else if (map[item.k] && map[item.k].data && map[item.k].data.data) {
-                  parsed.data = map[item.k].data.data;
-                  delete parsed._chunked;
-                }
+              if (parsed && parsed._chunked && chunksMap[item.k]) {
+                parsed.data = chunksMap[item.k].join('');
+                delete parsed._chunked;
               }
               map[item.k] = { recId: item.id, data: parsed };
             } catch (e) {}
@@ -133,8 +120,6 @@ App.api = (() => {
         _inFlight = null;
       }
     })();
-    return _inFlight;
-  }
     return _inFlight;
   }
 
@@ -276,7 +261,6 @@ App.api = (() => {
       lastMessage: lastMsg ? Object.assign({}, lastMsg) : null
     });
   }
-
   async function req(method, path, body) {
     await pullAll(method !== 'GET');
     const users = await getUsers();
@@ -291,208 +275,230 @@ App.api = (() => {
       const avatar = data.avatar || null;
 
       if (!name) throw new Error('Введите ваше имя');
-if (!username || username.length < 3) throw new Error('Придумайте @username (от 3 символов)');
-if (name.toLowerCase() === username) throw new Error('@username не должен совпадать с именем');
-if (!rawPhone && !rawEmail) throw new Error('Укажите телефон и/или почту');
-if (!password || password.length < 4) throw new Error('Пароль должен быть от 4 символов');
-const email = rawEmail.includes('@') ? rawEmail : (rawPhone.includes('@') ? rawPhone.toLowerCase() : '');
-const phone = !rawPhone.includes('@') ? normPhone(rawPhone) : '';
-if (phone && phone.length < 10) throw new Error('Введите корректный номер телефона (+7...)');
-if (users.some(u => u.username === username)) throw new Error('Этот @username уже занят');
-if (email && users.some(u => u.email === email)) throw new Error('Эта почта уже зарегистрирована');
-if (phone && users.some(u => u.phone === phone)) throw new Error('Этот номер телефона уже зарегистрирован');
-const user = enrichUser({
-id: 'u_' + Date.now() + '_' + Math.floor(Math.random() * 999),
-username,
-name,
-email,
-phone,
-passwordHash: await sha256(password),
-bio: '',
-avatar,
-lastSeen: Date.now()
-});
-await putDoc('user__' + user.id, user);
-setToken(user.id);
-const savedChat = {
-id: 'c_saved_' + user.id,
-type: 'group',
-name: 'Избранное',
-members: [user.id],
-userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
-};
-await putDoc('chat__' + savedChat.id, savedChat);
-return { token: user.id, user };
-}
-if (method === 'POST' && path === '/auth/login') {
-const rawLogin = String(body.username || '').trim();
-const password = String(body.password || '').trim();
-const qLower = cleanUsername(rawLogin);
-const qPhone = normPhone(rawLogin);
-const passHash = await sha256(password);
-const found = users.find(u =>
-u.passwordHash === passHash && (
-u.username === qLower ||
-(u.email && u.email.toLowerCase() === qLower) ||
-(u.phone && qPhone && u.phone === qPhone)
-)
-);
-if (!found) throw new Error('Неверный логин (телефон/почта/@username) или пароль');
-const user = enrichUser(found);
-user.lastSeen = Date.now();
-await putDoc('user__' + user.id, user);
-setToken(user.id);
-const allChats = await getChats();
-if (!allChats.some(c => c.id === 'c_saved_' + user.id)) {
-const savedChat = {
-id: 'c_saved_' + user.id,
-type: 'group',
-name: 'Избранное',
-members: [user.id],
-userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
-};
-await putDoc('chat__' + savedChat.id, savedChat);
-}
-return { token: user.id, user };
-}
-const me = requireMe(users);
-if (Date.now() - (me.lastSeen || 0) > 25000) {
-me.lastSeen = Date.now();
-putDoc('user__' + me.id, me).catch(() => {});
-}
-if (method === 'GET' && path === '/me') return { user: me, me };
-if (method === 'POST' && path === '/me/delete') {
-await delDoc('user__' + me.id);
-await delDoc('chat__c_saved_' + me.id);
-setToken(null);
-return { ok: true };
-}
-if (method === 'POST' && path === '/me/update') {
-const nextName = body.name ? String(body.name).trim() : me.name;
-const cleanU = body.username ? cleanUsername(body.username) : me.username;
-if (cleanU.length < 3) throw new Error('@username должен быть от 3 символов');
-if (nextName.toLowerCase() === cleanU) throw new Error('@username не должен совпадать с именем');
-if (users.some(u => u.id !== me.id && u.username === cleanU)) throw new Error('Этот @username уже занят другим пользователем');
-me.name = nextName;
-me.username = cleanU;
-if (body.bio !== undefined) me.bio = String(body.bio).trim();
-if (body.avatar !== undefined) me.avatar = body.avatar;
-const updated = enrichUser(me);
-await putDoc('user__' + updated.id, updated);
-return { user: updated };
-}
-const allChats = await getChats();
-if (method === 'GET' && path.startsWith('/users/search')) {
-const rawQ = decodeURIComponent(path.split('q=').at(1) || '').trim();
-const qLower = cleanUsername(rawQ);
-const qPhone = normPhone(rawQ);
-const qDigits = rawQ.split('').filter(ch => ch >= '0' && ch <= '9').join('');
-const list = users
-.filter(u => u.id !== me.id && (
-!qLower ||
-u.username.includes(qLower) ||
-(u.name || '').toLowerCase().includes(qLower) ||
-(u.phone && qPhone && u.phone === qPhone) ||
-(u.phone && qDigits.length >= 4 && u.phone.includes(qDigits))
-))
-.map(u => ({
-id: u.id,
-username: u.username,
-name: u.name,
-avatar: u.avatar || null,
-initials: u.initials,
-color: u.color,
-online: Date.now() - (u.lastSeen || 0) < 45000
-}));
-// Поиск публичных каналов и групп по названию
-const publicRooms = allChats
-.filter(c => !c.id.startsWith('c_saved_') && (c.type === 'channel' || c.type === 'group') && !(c.members || []).includes(me.id) &&
-(!qLower || (c.name || '').toLowerCase().includes(qLower)))
-.map(c => ({
-id: c.id,
-type: c.type,
-name: c.name,
-avatar: c.avatar || null,
-initials: (c.name || 'C').slice(0, 2).toUpperCase(),
-color: getColor(c.id),
-membersCount: (c.members || []).length
-}));
-return { users: list, rooms: publicRooms };
-}
-if (method === 'GET' && path === '/chats') {
-const myChats = allChats.filter(c => (c.members || []).includes(me.id) && !(c.deletedFor && c.deletedFor.includes(me.id)));
-const formatted = await Promise.all(myChats.map(async c => {
-const msgs = await getChatMsgs(c.id, me.id, me.username);
-return formatChatForUser(c, me, users, msgs);
-}));
-formatted.sort((a, b) => {
-if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-const ta = a.lastMessage ? a.lastMessage.ts : 0;
-const tb = b.lastMessage ? b.lastMessage.ts : 0;
-return tb - ta;
-});
-return { chats: formatted };
-}
-if (method === 'POST' && path === '/chats') {
-if (body.type === 'join' && body.chatId) {
-const room = allChats.find(c => c.id === body.chatId);
-if (!room) throw new Error('Канал или группа не найдены');
-if (!room.members.includes(me.id)) {
-room.members.push(me.id);
-await putDoc('chat__' + room.id, room);
-}
-const msgs = await getChatMsgs(room.id, me.id, me.username);
-return { chat: formatChatForUser(room, me, users, msgs) };
-}
-if (body.type === 'dm') {
-const target = users.find(u => u.username === cleanUsername(body.username) || u.id === body.userId);
-if (!target) throw new Error('Пользователь не найден');
-const existing = allChats.find(c => c.type === 'dm' && c.members.includes(me.id) && c.members.includes(target.id));
-if (existing) {
-existing.deletedFor = (existing.deletedFor || []).filter(id => id !== me.id);
-await putDoc('chat__' + existing.id, existing);
-const msgs = await getChatMsgs(existing.id, me.id, me.username);
-return { chat: formatChatForUser(existing, me, users, msgs) };
-}
-const dm = {
-id: 'c_dm_' + [me.id, target.id].sort().join('_'),
-type: 'dm',
-name: '',
-members: [me.id, target.id],
-userState: { [me.id]: { lastRead: Date.now() }, [target.id]: { lastRead: 0 } }
-};
-await putDoc('chat__' + dm.id, dm);
-return { chat: formatChatForUser(dm, me, users, []) };
-}
-if (body.type === 'group' || body.type === 'channel') {
-const isChan = body.type === 'channel';
-const gName = String(body.name || (isChan ? 'Новый канал' : 'Новая группа')).trim();
-const picked = (body.memberUsernames || [])
-.map(un => users.find(u => u.username === cleanUsername(un)))
-.filter(Boolean)
-.map(u => u.id);
-const members = Array.from(new Set([me.id, ...picked]));
-const grp = {
-id: (isChan ? 'c_chn_' : 'c_grp_') + Date.now(),
-type: isChan ? 'channel' : 'group',
-name: gName,
-bio: String(body.bio || '').trim(),
-avatar: body.avatar || null,
-ownerId: me.id,
-admins: [me.id],
-members,
-userState: { [me.id]: { lastRead: Date.now() } }
-};
-await putDoc('chat__' + grp.id, grp);
-return { chat: formatChatForUser(grp, me, users, []) };
-}
-}
-if (method === 'POST' && path.startsWith('/messages/') && path.endsWith('/delete')) {
-const mid = path.split('/').at(2);
-const scope = (body && body.scope) || 'all';
-const map = await pullAll(false);
-const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.data && (v.data.id === mid || v.data.mid === mid));
-if (entry) {
+      if (!username || username.length < 3) throw new Error('Придумайте @username (от 3 символов)');
+      if (name.toLowerCase() === username) throw new Error('@username не должен совпадать с именем');
+      if (!rawPhone && !rawEmail) throw new Error('Укажите телефон и/или почту');
+      if (!password || password.length < 4) throw new Error('Пароль должен быть от 4 символов');
+
+      const email = rawEmail.includes('@') ? rawEmail : (rawPhone.includes('@') ? rawPhone.toLowerCase() : '');
+      const phone = !rawPhone.includes('@') ? normPhone(rawPhone) : '';
+
+      if (phone && phone.length < 10) throw new Error('Введите корректный номер телефона (+7...)');
+      if (users.some(u => u.username === username)) throw new Error('Этот @username уже занят');
+      if (email && users.some(u => u.email === email)) throw new Error('Эта почта уже зарегистрирована');
+      if (phone && users.some(u => u.phone === phone)) throw new Error('Этот номер телефона уже зарегистрирован');
+
+      const user = enrichUser({
+        id: 'u_' + Date.now() + '_' + Math.floor(Math.random() * 999),
+        username,
+        name,
+        email,
+        phone,
+        passwordHash: await sha256(password),
+        bio: '',
+        avatar,
+        lastSeen: Date.now()
+      });
+      await putDoc('user__' + user.id, user);
+      setToken(user.id);
+
+      const savedChat = {
+        id: 'c_saved_' + user.id,
+        type: 'group',
+        name: 'Избранное',
+        members: [user.id],
+        userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
+      };
+      await putDoc('chat__' + savedChat.id, savedChat);
+      return { token: user.id, user };
+    }
+
+    if (method === 'POST' && path === '/auth/login') {
+      const rawLogin = String(body.username || '').trim();
+      const password = String(body.password || '').trim();
+      const qLower = cleanUsername(rawLogin);
+      const qPhone = normPhone(rawLogin);
+      const passHash = await sha256(password);
+
+      const found = users.find(u =>
+        u.passwordHash === passHash && (
+          u.username === qLower ||
+          (u.email && u.email.toLowerCase() === qLower) ||
+          (u.phone && qPhone && u.phone === qPhone)
+        )
+      );
+
+      if (!found) throw new Error('Неверный логин (телефон/почта/@username) или пароль');
+      const user = enrichUser(found);
+      user.lastSeen = Date.now();
+      await putDoc('user__' + user.id, user);
+      setToken(user.id);
+
+      const allChats = await getChats();
+      if (!allChats.some(c => c.id === 'c_saved_' + user.id)) {
+        const savedChat = {
+          id: 'c_saved_' + user.id,
+          type: 'group',
+          name: 'Избранное',
+          members: [user.id],
+          userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
+        };
+        await putDoc('chat__' + savedChat.id, savedChat);
+      }
+      return { token: user.id, user };
+    }
+
+    const me = requireMe(users);
+    if (Date.now() - (me.lastSeen || 0) > 25000) {
+      me.lastSeen = Date.now();
+      putDoc('user__' + me.id, me).catch(() => {});
+    }
+
+    if (method === 'GET' && path === '/me') return { user: me, me };
+
+    if (method === 'POST' && path === '/me/delete') {
+      await delDoc('user__' + me.id);
+      await delDoc('chat__c_saved_' + me.id);
+      setToken(null);
+      return { ok: true };
+    }
+
+    if (method === 'POST' && path === '/me/update') {
+      const nextName = body.name ? String(body.name).trim() : me.name;
+      const cleanU = body.username ? cleanUsername(body.username) : me.username;
+      if (cleanU.length < 3) throw new Error('@username должен быть от 3 символов');
+      if (nextName.toLowerCase() === cleanU) throw new Error('@username не должен совпадать с именем');
+      if (users.some(u => u.id !== me.id && u.username === cleanU)) throw new Error('Этот @username уже занят другим пользователем');
+
+      me.name = nextName;
+      me.username = cleanU;
+      if (body.bio !== undefined) me.bio = String(body.bio).trim();
+      if (body.avatar !== undefined) me.avatar = body.avatar;
+      const updated = enrichUser(me);
+      await putDoc('user__' + updated.id, updated);
+      return { user: updated };
+    }
+
+    const allChats = await getChats();
+
+    if (method === 'GET' && path.startsWith('/users/search')) {
+      const rawQ = decodeURIComponent(path.split('q=').at(1) || '').trim();
+      const qLower = cleanUsername(rawQ);
+      const qPhone = normPhone(rawQ);
+      const qDigits = rawQ.split('').filter(ch => ch >= '0' && ch <= '9').join('');
+
+      const list = users
+        .filter(u => u.id !== me.id && (
+          !qLower ||
+          u.username.includes(qLower) ||
+          (u.name || '').toLowerCase().includes(qLower) ||
+          (u.phone && qPhone && u.phone === qPhone) ||
+          (u.phone && qDigits.length >= 4 && u.phone.includes(qDigits))
+        ))
+        .map(u => ({
+          id: u.id,
+          username: u.username,
+          name: u.name,
+          avatar: u.avatar || null,
+          initials: u.initials,
+          color: u.color,
+          online: Date.now() - (u.lastSeen || 0) < 45000
+        }));
+
+      const publicRooms = allChats
+        .filter(c => !c.id.startsWith('c_saved_') && (c.type === 'channel' || c.type === 'group') && !(c.members || []).includes(me.id) &&
+          (!qLower || (c.name || '').toLowerCase().includes(qLower)))
+        .map(c => ({
+          id: c.id,
+          type: c.type,
+          name: c.name,
+          avatar: c.avatar || null,
+          initials: (c.name || 'C').slice(0, 2).toUpperCase(),
+          color: getColor(c.id),
+          membersCount: (c.members || []).length
+        }));
+
+      return { users: list, rooms: publicRooms };
+    }
+
+    if (method === 'GET' && path === '/chats') {
+      const myChats = allChats.filter(c => (c.members || []).includes(me.id) && !(c.deletedFor && c.deletedFor.includes(me.id)));
+      const formatted = await Promise.all(myChats.map(async c => {
+        const msgs = await getChatMsgs(c.id, me.id, me.username);
+        return formatChatForUser(c, me, users, msgs);
+      }));
+      formatted.sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        const ta = a.lastMessage ? a.lastMessage.ts : 0;
+        const tb = b.lastMessage ? b.lastMessage.ts : 0;
+        return tb - ta;
+      });
+      return { chats: formatted };
+    }
+
+    if (method === 'POST' && path === '/chats') {
+      if (body.type === 'join' && body.chatId) {
+        const room = allChats.find(c => c.id === body.chatId);
+        if (!room) throw new Error('Канал или группа не найдены');
+        if (!room.members.includes(me.id)) {
+          room.members.push(me.id);
+          await putDoc('chat__' + room.id, room);
+        }
+        const msgs = await getChatMsgs(room.id, me.id, me.username);
+        return { chat: formatChatForUser(room, me, users, msgs) };
+      }
+
+      if (body.type === 'dm') {
+        const target = users.find(u => u.username === cleanUsername(body.username) || u.id === body.userId);
+        if (!target) throw new Error('Пользователь не найден');
+        const existing = allChats.find(c => c.type === 'dm' && c.members.includes(me.id) && c.members.includes(target.id));
+        if (existing) {
+          existing.deletedFor = (existing.deletedFor || []).filter(id => id !== me.id);
+          await putDoc('chat__' + existing.id, existing);
+          const msgs = await getChatMsgs(existing.id, me.id, me.username);
+          return { chat: formatChatForUser(existing, me, users, msgs) };
+        }
+        const dm = {
+          id: 'c_dm_' + [me.id, target.id].sort().join('_'),
+          type: 'dm',
+          name: '',
+          members: [me.id, target.id],
+          userState: { [me.id]: { lastRead: Date.now() }, [target.id]: { lastRead: 0 } }
+        };
+        await putDoc('chat__' + dm.id, dm);
+        return { chat: formatChatForUser(dm, me, users, []) };
+      }
+
+      if (body.type === 'group' || body.type === 'channel') {
+        const isChan = body.type === 'channel';
+        const gName = String(body.name || (isChan ? 'Новый канал' : 'Новая группа')).trim();
+        const picked = (body.memberUsernames || [])
+          .map(un => users.find(u => u.username === cleanUsername(un)))
+          .filter(Boolean)
+          .map(u => u.id);
+        const members = Array.from(new Set([me.id, ...picked]));
+        const grp = {
+          id: (isChan ? 'c_chn_' : 'c_grp_') + Date.now(),
+          type: isChan ? 'channel' : 'group',
+          name: gName,
+          bio: String(body.bio || '').trim(),
+          avatar: body.avatar || null,
+          ownerId: me.id,
+          admins: [me.id],
+          members,
+          userState: { [me.id]: { lastRead: Date.now() } }
+        };
+        await putDoc('chat__' + grp.id, grp);
+        return { chat: formatChatForUser(grp, me, users, []) };
+      }
+    }
+
+    if (method === 'POST' && path.startsWith('/messages/') && path.endsWith('/delete')) {
+      const mid = path.split('/').at(2);
+      const scope = (body && body.scope) || 'all';
+      const map = await pullAll(true);
+      const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.data && (v.data.id === mid || v.data.mid === mid));
+      if (entry) {
 const [docKey, wrap] = entry;
 if (scope === 'me') {
 wrap.data.hiddenFor = Array.from(new Set([...(wrap.data.hiddenFor || []), me.id]));
@@ -519,7 +525,6 @@ if (chat.type === 'dm' && scope === 'me') {
 chat.deletedFor = Array.from(new Set([...(chat.deletedFor || []), me.id]));
 await putDoc('chat__' + chatId, chat);
 } else {
-// Удаляем чат полностью у себя и у собеседника (или удаляем группу/канал)
 await delDoc('chat__' + chatId);
 const map = await pullAll(false);
 const msgKeys = Object.keys(map).filter(k => k.startsWith('msg__' + chatId + '__'));
@@ -556,11 +561,12 @@ chat.admins = chat.admins.filter(id => id !== uid);
 await putDoc('chat__' + chatId, chat);
 return { ok: true };
 }
-      if (method === 'GET' && sub.startsWith('/messages')) {
-        await pullAll(true, true);
-        const msgs = (await getChatMsgs(chatId, me.id, me.username)).filter(m => (m.ts || 0) > after);
-        return { messages: msgs, now: Date.now() };
-      }
+if (method === 'GET' && sub.startsWith('/messages')) {
+await pullAll(true);
+const after = Number(sub.split('after=').at(1) || 0);
+const msgs = (await getChatMsgs(chatId, me.id, me.username)).filter(m => (m.ts || 0) > after);
+return { messages: msgs, now: Date.now() };
+}
 if (method === 'POST' && sub === '/messages') {
 const admins = chat.admins || (chat.ownerId ? [chat.ownerId] : []);
 if (chat.type === 'channel' && chat.ownerId !== me.id && !admins.includes(me.id)) {
