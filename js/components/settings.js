@@ -15,11 +15,16 @@ App.components.settings = (() => {
     if (document.getElementById('lm-settings-css')) return;
     const st = document.createElement('style');
     st.id = 'lm-settings-css';
-    st.textContent = `
+       st.textContent = `
       #settingsview .sbody { display: flex !important; flex-direction: column !important; gap: 14px !important; padding: 16px !important; max-width: 680px; margin: 0 auto; width: 100%; box-sizing: border-box; }
       .lm-card { display: block !important; background: var(--panel, #161926) !important; border: 1px solid var(--border, rgba(255,255,255,0.08)) !important; border-radius: 16px !important; padding: 4px 16px !important; box-sizing: border-box !important; }
+      [data-theme="light"] .lm-card { background: #ffffff !important; border: 1px solid #d1d5db !important; box-shadow: 0 2px 10px rgba(0,0,0,0.04) !important; }
+      [data-theme="light"] .lm-title { color: #111827 !important; }
+      [data-theme="light"] .lm-sub { color: #4b5563 !important; }
+      [data-theme="light"] #settingsview .shead { background: #ffffff !important; color: #111827 !important; }
       .lm-card-pad { padding: 14px 16px !important; }
       .lm-row { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; gap: 14px !important; padding: 12px 0 !important; border-top: 1px solid var(--border, rgba(255,255,255,0.07)) !important; }
+      [data-theme="light"] .lm-row { border-top-color: #e5e7eb !important; }
       .lm-row:first-child { border-top: none !important; }
       .lm-left { display: flex !important; flex-direction: row !important; align-items: center !important; gap: 12px !important; flex: 1 !important; min-width: 0 !important; }
       .lm-ico { width: 32px !important; height: 32px !important; border-radius: 8px !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 16px !important; font-weight: 800 !important; color: #fff !important; flex-shrink: 0 !important; }
