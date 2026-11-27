@@ -12,10 +12,10 @@ App.components.inputbar = (() => {
   function isEn() { return localStorage.getItem('looma_lang') === 'en'; }
 
   function mount(container, chat) {
+    if (!container) return;
     currentChat = chat;
     const en = isEn();
 
-    // Если это канал и пользователь не админ/владелец — скрываем поле ввода
     if (chat.type === 'channel' && chat.canPost === false) {
       container.innerHTML = '<div style="width:100%;text-align:center;padding:12px;color:var(--grey);font-size:13.5px;font-weight:600;">' +
         (en ? 'Only channel administrators can post messages' : 'Только администраторы канала могут публиковать посты') + '</div>';
@@ -117,8 +117,7 @@ App.components.inputbar = (() => {
     deliver(p);
   }
 
-  /* Окно предпросмотра перед отправкой фото, видео или документа */
-  function openPreviewModal(file, dataUrl, kind) {
+  function openPreviewModal(file, dataUrl) {
     const en = isEn();
     const back = $('modalback');
     back.classList.add('open');
@@ -171,14 +170,14 @@ App.components.inputbar = (() => {
     inp.type = 'file';
     if (kind === 'photo') inp.accept = 'image/*,video/*';
     inp.onchange = () => {
-      const f = inp.files && inp.files;
+      const f = inp.files && inp.files[0];
       if (!f) return;
       if (f.size > 4500000) {
         App.utils.toast(isEn() ? 'File too large (max 4.5MB)' : 'Файл слишком большой (макс. 4.5 МБ)');
         return;
       }
       const rd = new FileReader();
-      rd.onload = () => openPreviewModal(f, rd.result, kind);
+      rd.onload = () => openPreviewModal(f, rd.result);
       rd.onerror = () => App.utils.toast('Не удалось прочитать файл');
       rd.readAsDataURL(f);
     };
@@ -191,7 +190,6 @@ App.components.inputbar = (() => {
     App.store.setReplyTo(null);
     hideReplyBar();
 
-    // Мгновенно показываем сообщение на экране до ответа сервера
     const tempMid = 'temp_' + Date.now();
     const optimistic = Object.assign({}, payload, {
       id: tempMid,
@@ -219,17 +217,17 @@ App.components.inputbar = (() => {
     const grid = document.querySelector('#emojipick .egrid');
     App.data.stickerPacks.forEach((pack, i) => {
       const t = document.createElement('button');
-      t.textContent = pack.emojis;
+      t.textContent = pack.emojis[0];
       t.title = pack.name;
       if (i === 0) t.classList.add('on');
-      t.addEventListener('click',() => {
-tabs.querySelectorAll('button').forEach(x => x.classList.remove('on'));
-t.classList.add('on');
-fillGrid(pack);
-});
-tabs.appendChild(t);
-});
-fillGrid(App.data.stickerPacks);
+      t.addEventListener('click', () => {
+        tabs.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+        t.classList.add('on');
+        fillGrid(pack);
+      });
+      tabs.appendChild(t);
+    });
+    fillGrid(App.data.stickerPacks[0]);
 function fillGrid(pack) {
 grid.innerHTML = '';
 pack.emojis.forEach(e => {
@@ -251,9 +249,8 @@ input.focus();
 input.selectionStart = input.selectionEnd = s + emoji.length;
 input.dispatchEvent(new Event('input'));
 }
-/* Настоящая запись голосовых сообщений с микрофона */
 async function toggleRecorder() {
-const rec = ('recorder'), input = ('msgInput');
+const rec = $('recorder'), input = $('msgInput');
 const isOpening = !rec.classList.contains('open');
 if (isOpening) {
 try {
