@@ -1,4 +1,4 @@
-/* ================= components/inputbar.js — Looma Composer (Preview + Real Mic + Channel Lock) ================= */
+/* ================= components/inputbar.js — Real Voice + File Preview + Channel Lock ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
@@ -6,8 +6,7 @@ App.components = App.components || {};
 App.components.inputbar = (() => {
   const { $, esc, icon } = App.utils;
   let currentChat = null;
-  let recTimer = null, recSecs = 0;
-  let mediaRecorder = null, audioChunks = [];
+  let recTimer = null, recSecs = 0, mediaRec = null, audioChunks = [];
   let lastTypePing = 0;
 
   function isEn() { return localStorage.getItem('looma_lang') === 'en'; }
@@ -16,11 +15,10 @@ App.components.inputbar = (() => {
     currentChat = chat;
     const en = isEn();
 
+    // Если это канал и пользователь не админ/владелец — скрываем поле ввода
     if (chat.type === 'channel' && chat.canPost === false) {
-      container.innerHTML =
-        '<div style="width:100%;text-align:center;padding:10px;color:var(--grey);font-size:13.5px;font-weight:600;">' +
-          (en ? 'Only channel administrators can post messages' : 'Публиковать посты в канале могут только администраторы') +
-        '</div>';
+      container.innerHTML = '<div style="width:100%;text-align:center;padding:12px;color:var(--grey);font-size:13.5px;font-weight:600;">' +
+        (en ? 'Only channel administrators can post messages' : 'Только администраторы канала могут публиковать посты') + '</div>';
       return;
     }
 
@@ -29,14 +27,14 @@ App.components.inputbar = (() => {
       '<div id="recorder"><span class="rdot"></span><span class="rtime">0:00</span>' +
         '<div class="rwaves">' + waves() + '</div>' +
         '<span class="rhint">' + (en ? 'recording… tap mic to send' : 'запись… нажмите микрофон для отправки') + '</span></div>' +
-      '<input id="msgInput" placeholder="' + (en ? 'Write a message...' : 'Написать сообщение...') + '" autocomplete="off">' +
-      '<button class="iconbtn" id="bEmoji" title="' + (en ? 'Emoji' : 'Эмодзи') + '">' + icon('emoji') + '</button>' +
+      '<input id="msgInput" placeholder="' + (en ? 'Write a message...' : 'Написать сообщение…') + '" autocomplete="off">' +
+      '<button class="iconbtn" id="bEmoji" title="Эмодзи">' + icon('emoji') + '</button>' +
       '<button class="iconbtn" id="bMic" title="' + (en ? 'Voice message' : 'Голосовое сообщение') + '">' + icon('mic') + '</button>' +
       '<button class="iconbtn" id="sendBtn" title="' + (en ? 'Send' : 'Отправить') + '" style="display:none">' + icon('send') + '</button>' +
       '<div id="emojipick"><div class="etabs"></div><div class="egrid"></div></div>' +
       '<div id="attachmenu">' +
         '<button data-a="photo">' + icon('image') + (en ? 'Photo / Video' : 'Фото или видео') + '</button>' +
-        '<button data-a="file">' + icon('file') + (en ? 'Document (File)' : 'Документ (файл)') + '</button>' +
+        '<button data-a="file">' + icon('file') + (en ? 'Document' : 'Документ (файл)') + '</button>' +
       '</div>';
 
     buildEmojiPicker();
@@ -44,7 +42,7 @@ App.components.inputbar = (() => {
     input.focus();
 
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey && App.store.state.enterToSend !== false) {
+      if (e.key === 'Enter' && !e.shiftKey && App.store.state.enterToSend) {
         e.preventDefault();
         sendText();
       }
@@ -95,7 +93,7 @@ App.components.inputbar = (() => {
   function basePayload(kind) {
     const r = App.store.state.replyTo;
     const p = { kind: kind || 'text', text: '' };
-    if (r && r.mid && (r.text || r.sender)) p.replyTo = { mid: r.mid, sender: r.sender, text: r.text };
+    if (r && r.mid) p.replyTo = { mid: r.mid, sender: r.sender, text: r.text };
     return p;
   }
 
@@ -118,114 +116,113 @@ App.components.inputbar = (() => {
     $('emojipick').classList.remove('open');
     deliver(p);
   }
-/* Окно предпросмотра фото, видео или документа перед отправкой /
-function sendAttachment(kind) {
-if (!currentChat) return;
-const en = isEn();
-const inp = document.createElement('input');
-inp.type = 'file';
-if (kind === 'photo') inp.accept = 'image/,video/*';
-inp.onchange = () => {
-const f = inp.files && inp.files;
-if (!f) return;
-if (f.size > 4194304) {
-App.utils.toast(en ? 'File too large (max 4MB)' : 'Файл слишком большой (макс. 4 МБ)');
-return;
-}
-const rd = new FileReader();
-rd.onload = () => {
-const isVideo = f.type.startsWith('video/');
-const isImage = f.type.startsWith('image/');
-const msgKind = isVideo ? 'video' : (isImage ? 'image' : 'file');
-const back = $('modalback');
-back.classList.add('open');
-const previewHtml = isImage
-? ''
-: (isVideo
-? ''
-: '' +
-'' + icon('file') + '' +
-'' + esc(f.name) + '' +
-'' + App.utils.fmtSize(f.size) + '' +
-'');
-back.innerHTML =
-'' +
-'' +
-'' + (en ? 'Send attachment' : 'Предпросмотр перед отправкой') + '' +
-'' + icon('close') + '' +
-'' +
-previewHtml +
-'' +
-'' +
-'' + (en ? 'Cancel' : 'Отмена') + '' +
-'' + (en ? 'Send' : 'Отправить') + '' +
-'' +
-'';
-const closePv = () => { back.classList.remove('open'); back.innerHTML = ''; };
-const confirmSend = () => {
-const cap = ($('pvCaption') && $('pvCaption').value.trim()) || '';
-closePv();
-const p = basePayload(msgKind);
-p.data = rd.result;
-p.text = cap;
-if (msgKind === 'file') { p.fileName = f.name; p.fileSize = f.size; }
-deliver(p);
-};
-$('pvClose').onclick = closePv;
-$('pvCancel').onclick = closePv;
-$('pvSend').onclick = confirmSend;
-back.onclick = ev => { if (ev.target === back) closePv(); };
-setTimeout(() => {
-if ($('pvCaption')) {
-$('pvCaption').focus();
-$('pvCaption').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); confirmSend(); } };
-}
-}, 40);
-};
-rd.readAsDataURL(f);
-};
-inp.click();
-}
-/* Мгновенная оптимистичная отправка без задержки */
-async function deliver(payload) {
-const chat = currentChat;
-if (!chat) return;
-App.store.setReplyTo(null);
-hideReplyBar();
-const tempMid = 'temp_' + Date.now();
-const d = new Date();
-const pad = n => String(n).padStart(2, '0');
-const tempMsg = Object.assign({}, payload, {
-id: tempMid,
-mid: tempMid,
-chatId: chat.id,
-from: App.me && App.me.username,
-sender: App.me && App.me.name,
-out: true,
-ts: Date.now(),
-time: pad(d.getHours()) + ':' + pad(d.getMinutes())
-});
-App.components.chatview.appendMessage(chat, tempMsg);
-try {
-const saved = await App.store.sendMessage(chat.id, payload);
-const oldEl = document.querySelector('.msg[data-mid="' + tempMid + '"]');
-if (oldEl && saved && (saved.mid || saved.id)) {
-oldEl.dataset.mid = saved.mid || saved.id;
-}
-App.components.chatlist.render(App.store.state.filter);
-} catch (e) {
-App.utils.toast('Ошибка отправки: ' + e.message);
-}
-}
-function buildEmojiPicker() {
-const tabs = document.querySelector('#emojipick .etabs');
-const grid = document.querySelector('#emojipick .egrid');
-App.data.stickerPacks.forEach((pack, i) => {
-const t = document.createElement('button');
-t.textContent = pack.emojis;
-t.title = pack.name;
-if (i === 0) t.classList.add('on');
-t.addEventListener('click', () => {
+
+  /* Окно предпросмотра перед отправкой фото, видео или документа */
+  function openPreviewModal(file, dataUrl, kind) {
+    const en = isEn();
+    const back = $('modalback');
+    back.classList.add('open');
+    const isImg = file.type.startsWith('image/');
+    const isVid = file.type.startsWith('video/');
+
+    const previewHtml = isImg
+      ? '<img src="' + dataUrl + '" style="max-width:100%;max-height:260px;border-radius:12px;margin:0 auto 12px;display:block;object-fit:contain;">'
+      : isVid
+        ? '<video src="' + dataUrl + '" controls style="max-width:100%;max-height:240px;border-radius:12px;margin:0 auto 12px;display:block;"></video>'
+        : '<div style="padding:18px;background:rgba(128,128,128,.12);border-radius:12px;margin-bottom:12px;text-align:center;font-weight:600;">📎 ' + esc(file.name) + '</div>';
+
+    back.innerHTML =
+      '<div style="width:100%;max-width:400px;background:var(--panel,#161926);border:1px solid var(--border);border-radius:20px;padding:20px;color:var(--text,#fff);box-shadow:0 20px 50px rgba(0,0,0,.5);">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+          '<strong>' + (en ? 'Send attachment' : 'Предпросмотр отправки') + '</strong>' +
+          '<button class="iconbtn" id="pvClose">' + icon('close') + '</button>' +
+        '</div>' +
+        previewHtml +
+        '<input id="pvCaption" placeholder="' + (en ? 'Add a caption…' : 'Добавить подпись…') + '" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:inherit;margin-bottom:12px;">' +
+        '<div style="display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button type="button" id="pvCancel" style="padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--grey);cursor:pointer;">' + (en ? 'Cancel' : 'Отмена') + '</button>' +
+          '<button type="button" id="pvSend" style="padding:9px 18px;border-radius:10px;border:none;background:var(--accent,#7c4dff);color:#fff;font-weight:700;cursor:pointer;">' + (en ? 'Send' : 'Отправить') + '</button>' +
+        '</div>' +
+      '</div>';
+
+    const closePv = () => { back.classList.remove('open'); back.innerHTML = ''; };
+    $('pvClose').onclick = closePv;
+    $('pvCancel').onclick = closePv;
+    back.onclick = e => { if (e.target === back) closePv(); };
+
+    const doSend = () => {
+      const msgKind = isImg ? 'image' : (isVid ? 'video' : 'file');
+      const p = basePayload(msgKind);
+      p.data = dataUrl;
+      p.text = $('pvCaption').value.trim();
+      if (msgKind === 'file') { p.fileName = file.name; p.fileSize = file.size; }
+      closePv();
+      deliver(p);
+    };
+
+    $('pvSend').onclick = doSend;
+    $('pvCaption').addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+    setTimeout(() => $('pvCaption').focus(), 40);
+  }
+
+  function sendAttachment(kind) {
+    if (!currentChat) return;
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    if (kind === 'photo') inp.accept = 'image/*,video/*';
+    inp.onchange = () => {
+      const f = inp.files && inp.files;
+      if (!f) return;
+      if (f.size > 4500000) {
+        App.utils.toast(isEn() ? 'File too large (max 4.5MB)' : 'Файл слишком большой (макс. 4.5 МБ)');
+        return;
+      }
+      const rd = new FileReader();
+      rd.onload = () => openPreviewModal(f, rd.result, kind);
+      rd.onerror = () => App.utils.toast('Не удалось прочитать файл');
+      rd.readAsDataURL(f);
+    };
+    inp.click();
+  }
+
+  async function deliver(payload) {
+    const chat = currentChat;
+    if (!chat) return;
+    App.store.setReplyTo(null);
+    hideReplyBar();
+
+    // Мгновенно показываем сообщение на экране до ответа сервера
+    const tempMid = 'temp_' + Date.now();
+    const optimistic = Object.assign({}, payload, {
+      id: tempMid,
+      mid: tempMid,
+      from: App.me && App.me.username,
+      sender: App.me && App.me.name,
+      out: true,
+      ts: Date.now(),
+      time: new Date().toTimeString().slice(0, 5)
+    });
+    App.components.chatview.appendMessage(chat, optimistic);
+
+    try {
+      const saved = await App.store.sendMessage(chat.id, payload);
+      const tempEl = document.querySelector('.msg[data-mid="' + tempMid + '"]');
+      if (tempEl && saved && saved.mid) tempEl.dataset.mid = saved.mid;
+      App.components.chatlist.render(App.store.state.filter);
+    } catch (e) {
+      App.utils.toast('Ошибка отправки: ' + e.message);
+    }
+  }
+
+  function buildEmojiPicker() {
+    const tabs = document.querySelector('#emojipick .etabs');
+    const grid = document.querySelector('#emojipick .egrid');
+    App.data.stickerPacks.forEach((pack, i) => {
+      const t = document.createElement('button');
+      t.textContent = pack.emojis;
+      t.title = pack.name;
+      if (i === 0) t.classList.add('on');
+      t.addEventListener('click',() => {
 tabs.querySelectorAll('button').forEach(x => x.classList.remove('on'));
 t.classList.add('on');
 fillGrid(pack);
@@ -254,34 +251,34 @@ input.focus();
 input.selectionStart = input.selectionEnd = s + emoji.length;
 input.dispatchEvent(new Event('input'));
 }
-/* Настоящая запись голоса с микрофона браузера */
+/* Настоящая запись голосовых сообщений с микрофона */
 async function toggleRecorder() {
-const rec = $('recorder'), input = $('msgInput');
+const rec = ('recorder'), input = ('msgInput');
 const isOpening = !rec.classList.contains('open');
 if (isOpening) {
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 audioChunks = [];
-mediaRecorder = new MediaRecorder(stream);
-mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-mediaRecorder.onstop = () => {
-stream.getTracks().forEach(tr => tr.stop());
-const dur = recSecs;
-if (dur > 0 && currentChat && audioChunks.length) {
+mediaRec = new MediaRecorder(stream);
+mediaRec.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+mediaRec.onstop = () => {
+stream.getTracks().forEach(t => t.stop());
 const blob = new Blob(audioChunks, { type: 'audio/webm' });
-const rd = new FileReader();
-rd.onload = () => {
+const dur = recSecs;
+if (dur > 0 && currentChat) {
+const reader = new FileReader();
+reader.onload = () => {
 const p = basePayload('voice');
 p.duration = dur;
-p.data = rd.result;
+p.data = reader.result;
 deliver(p);
 };
-rd.readAsDataURL(blob);
+reader.readAsDataURL(blob);
 }
 };
-mediaRecorder.start();
+mediaRec.start();
 } catch (err) {
-App.utils.toast('Нет доступа к микрофону');
+App.utils.toast(isEn() ? 'Microphone access denied' : 'Нет доступа к микрофону');
 return;
 }
 rec.classList.add('open');
@@ -299,9 +296,7 @@ rec.classList.remove('open');
 input.style.display = '';
 $('bEmoji').style.display = 'flex';
 clearInterval(recTimer);
-if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-mediaRecorder.stop();
-}
+if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
 }
 }
 function setReply(q) {
@@ -327,4 +322,3 @@ if (bar) bar.classList.remove('open');
 }
 return { mount, setReply, clearReply };
 })();
-```
