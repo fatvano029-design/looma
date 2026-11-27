@@ -1,236 +1,259 @@
+/* ================= components/chatview.js — Looma Conversation Pane ================= */
 'use strict';
 window.App = window.App || {};
 App.components = App.components || {};
-
 App.components.chatview = (() => {
-  const { $, esc, icon, avatar } = App.utils;
-  let searchState = null;
-  let pollTimer = null;
-  let pollCount = 0;
-
-  function pane() { return $('chatpane'); }
-  function isEn() { return localStorage.getItem('looma_lang') === 'en'; }
-
-  function stopPoll() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  }
-
-  function closeMobile() {
-    stopPoll();
-    App.store.setActive(null);
-    pane().classList.remove('open');
-    App.components.chatlist.render(App.store.state.filter);
-  }
-
-  async function open(id) {
-    const chat = App.store.getChat(id);
-    if (!chat) return;
-    const en = isEn();
-    stopPoll();
-    App.store.setActive(id);
-    if (App.components.infopanel && App.components.infopanel.close) App.components.infopanel.close();
-    if (App.components.settings && App.components.settings.close) App.components.settings.close();
-    searchState = null;
-    pollCount = 0;
-
-    const avaHtml = chat.avatar
-      ? '<div class="avatar a44" data-info style="background-image:url(' + chat.avatar + ');background-size:cover;background-position:center;color:transparent;">' + App.utils.initials(chat.name) + '</div>'
-      : '<div class="avatar ' + (chat.grad || 'g2') + ' a44" data-info style="background:' + esc(chat.color || '#6c47ff') + '">' + App.utils.initials(chat.name) + '</div>';
-
-    pane().innerHTML =
-      '<div id="cheader">' +
-        '<button class="iconbtn" id="hMobileBack" title="Назад">' + icon('back') + '</button>' +
-        avaHtml +
-        '<div id="ctitle" data-info><div class="name">' + esc(chat.name) + '</div>' +
-        '<div class="status" id="cstatus">' + esc(chat.status || chat.subtitle || '') + '</div></div>' +
-        '<button class="iconbtn" id="hSearch" title="' + (en ? 'Search in chat' : 'Поиск в чате') + '">' + icon('search') + '</button>' +
-        '<button class="iconbtn" id="hMore" title="' + (en ? 'Info & Members' : 'Инфо и участники') + '">' + icon('more') + '</button>' +
-      '</div>' +
-      '<div id="chatsearch"><input id="csInput" placeholder="' + (en ? 'Search in conversation…' : 'Поиск по сообщениям…') + '">' +
-      '<span class="count" id="csCount"></span>' +
-      '<button class="iconbtn" id="csClose" title="' + (en ? 'Close' : 'Закрыть') + '">' + icon('close') + '</button></div>' +
-      '<div id="messages"><div id="msgsInner"><div class="datebubble">' + (en ? 'Loading…' : 'Загрузка…') + '</div></div></div>' +
-      '<div id="replybar"><div style="flex:1;min-width:0">' +
-        '<div class="rsender" id="rsSender"></div><div class="rtext" id="rsText"></div></div>' +
-        '<button class="iconbtn" id="rsClose" title="' + (en ? 'Cancel reply' : 'Отменить ответ') + '">' + icon('close') + '</button></div>' +
-      '<div id="inputbar"></div>';
-
-    pane().classList.add('open');
-    $('hMobileBack').addEventListener('click', closeMobile);
-    document.querySelectorAll('[data-info]').forEach(el =>
-      el.addEventListener('click', () => App.components.infopanel.open(chat.id)));
-    $('hSearch').addEventListener('click', toggleSearch);
-    $('csClose').addEventListener('click', toggleSearch);
-    $('csInput').addEventListener('input', e => runSearch(chat, e.target.value));
-    $('csInput').addEventListener('keydown', e => { if (e.key === 'Enter') nextMatch(1); });
-    $('hMore').addEventListener('click', e => headerMenu(e, chat));
-    $('rsClose').addEventListener('click', () => App.components.inputbar.clearReply());
-
-    try {
-      await App.store.loadMessages(chat.id);
-    } catch (e) {
-      $('msgsInner').innerHTML = '<div class="datebubble">' + (en ? 'Could not load messages' : 'Не удалось загрузить сообщения') + '</div>';
-    }
-    renderMessages(chat);
-    App.components.inputbar.mount($('inputbar'), chat);
-    App.store.clearUnread(chat.id);
-    chat.unread = 0;
-    App.components.chatlist.render(App.store.state.filter);
-    startPoll(chat);
-  }
-
-  function startPoll(chat) {
-    stopPoll();
-    let lastTs = 0;
-    for (const m of App.store.getMessages(chat.id))
-      if (m.ts > lastTs) lastTs = m.ts;
-
-    const tick = async () => {
-      if (App.store.state.activeId !== chat.id) { stopPoll(); return; }
-      try {
-        const d = await App.api.messages(chat.id, 0);
-        const fresh = App.store.mergeMessages(chat.id, d.messages);
-        for (const m of fresh) {
-          appendMessage(chat, m);
-          if (m.ts > lastTs) lastTs = m.ts;
-        }
-        if (fresh.length) {
-          App.store.clearUnread(chat.id);
-          chat.unread = 0;
-          App.components.chatlist.render(App.store.state.filter);
-        }
-        const ty = await App.api.getTyping(chat.id);
-        renderTyping(chat, (ty && ty.typing) || []);
-        pollCount++;
-        if (pollCount % 3 === 0) {
-          try {
-            const keepFilter = App.store.state.filter;
-            await App.store.loadChats();
-            const ae = document.activeElement;
-            if (!ae || ae.id !== 'search') App.components.chatlist.render(keepFilter);
-          } catch (e) {}
-        }
-      } catch (e) {}
-    };
-    pollTimer = setInterval(tick, 1800);
-    tick();
-  }
-
-  function renderTyping(chat, typing) {
-    const s = $('cstatus');
-    const en = isEn();
-    if (!s || App.store.state.activeId !== chat.id) return;
-    if (typing.length) {
-      const names = typing.map(t => (t.name || '').split(' '));
-      s.textContent = en ? (names + ' is typing...') : (names + ' печатает...');
-      s.classList.add('typing');
-    } else {
-      s.textContent = chat.status || chat.subtitle || '';
-      s.classList.remove('typing');
-    }
-  }
-
-  function headerMenu(e, chat) {
-    e.stopPropagation();
-    closeMenu();
-    const en = isEn();
-    const menu = App.utils.el(
-      '<div class="ctxmenu">' +
-        '<button data-a="info">' + icon('search') + (en ? 'Info & Settings' : 'Управление и участники') + '</button>' +
-        '<button data-a="mute">' + icon('mute') + (chat.muted ? (en ? 'Unmute' : 'Включить звук') : (en ? 'Mute' : 'Без звука')) + '</button>' +
-      '</div>');
-    const r = e.currentTarget.getBoundingClientRect();
-    menu.style.top = (r.bottom + 6) + 'px';
-    menu.style.right = (window.innerWidth - r.right) + 'px';
-    $('overlay').appendChild(menu);
-    menu.addEventListener('click', ev => {
-      const a = ev.target.closest('button') && ev.target.closest('button').dataset.a;
-      closeMenu();
-      if (a === 'info') App.components.infopanel.open(chat.id);
-      if (a === 'mute') {
-        App.store.toggleMute(chat.id).then(() => {
-          open(chat.id);
-          App.components.chatlist.render(App.store.state.filter);
-        });
-      }
-    });
-  }
-
-  function renderMessages(chat) {
-    const inner = $('msgsInner');
-    const en = isEn();
-    if (!inner) return;
-    inner.innerHTML = '<div class="datebubble">' + (en ? 'Today' : 'Сегодня') + '</div>';
-    for (const m of App.store.getMessages(chat.id)) {
-      const b = App.components.bubbles.render(chat, m);
-      wireBubble(b, chat, m);
-      inner.appendChild(b);
-    }
-    scrollBottom();
-  }
-
-  function appendMessage(chat, m) {
-    const inner = $('msgsInner');
-    if (!inner || App.store.state.activeId !== chat.id) return;
-    const mid = m.mid || m.id;
-    if (mid && inner.querySelector('.msg[data-mid="' + mid + '"]')) return;
-    const b = App.components.bubbles.render(chat, m);
-    wireBubble(b, chat, m);
-    inner.appendChild(b);
-    App.components.bubbles.animateTicks(b);
-    scrollBottom();
-  }
-
-  function wireBubble(bubbleEl, chat, m) {
-    bubbleEl.addEventListener('contextmenu', e => {
-      e.preventDefault();
-      msgMenu(e, chat, m);
-    });
-  }
-
-  function msgMenu(e, chat, m) {
-    closeMenu();
-    const en = isEn();
-    const canCopy = m.kind === 'text' && m.text;
-    const own = m.out || (m.from === (App.me && App.me.username));
-    const isChannelAdmin = chat.type === 'channel' && chat.canPost;
-    const canDeleteForAll = own || isChannelAdmin;
-
-    const menu = App.utils.el(
-      '<div class="ctxmenu">' +
-        '<button data-a="reply">' + icon('back') + (en ? 'Reply' : 'Ответить') + '</button>' +
-        '<button data-a="forward">' + icon('send') + (en ? 'Forward' : 'Переслать') + '</button>' +
-        (canCopy ? '<button data-a="copy">' + icon('check') + (en ? 'Copy text' : 'Копировать') + '</button>' : '') +
-        '<hr>' +
-        '<button data-a="del_self" class="danger">' + icon('close') + (en ? 'Delete for me' : 'Удалить у себя') + '</button>' +
-        (canDeleteForAll ? '<button data-a="del_all" class="danger">' + icon('close') + (en ? 'Delete for everyone' : 'Удалить у всех') + '</button>' : '') +
-      '</div>');
-    menu.style.left = Math.min(e.clientX, window.innerWidth - 220) + 'px';
-    menu.style.top = Math.min(e.clientY, window.innerHeight - 250) + 'px';
-    $('overlay').appendChild(menu);
-    menu.addEventListener('click', ev => {
-      const btn = ev.target.closest('button');
-      closeMenu();
-      if (!btn) return;
-      const a = btn.dataset.a;
-      const mid = m.mid || m.id;
-      if (a === 'reply') {
-        const sender = own ? (en ? 'You' : 'Вы') : (m.sender || chat.name);
-        App.components.inputbar.setReply({ mid, sender, text: m.text || kindText(m) });
-      }
-      if (a === 'forward') openForwardPicker(m);
-      if (a === 'copy') {
-        try { navigator.clipboard.writeText(m.text); App.utils.toast(en ? 'Copied' : 'Скопировано'); }
-        catch (err) {}
-      }
-      if (a === 'del_self' || a === 'del_all') {
-        const scope = a === 'del_self' ? 'self' : 'all';
-const el = document.querySelector('.msg[data-mid="' + mid + '"]');
-if (el) el.remove();
-App.api.deleteMessage(mid, scope).then(async () => {
+const { $, esc, icon, avatar } = App.utils;
+let searchState = null;
+let pollTimer = null;
+let pollCount = 0;
+function pane() { return $('chatpane'); }
+function isEn() { return localStorage.getItem('looma_lang') === 'en'; }
+function stopPoll() {
+if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+async function open(id) {
+const chat = App.store.getChat(id);
+if (!chat) return;
+const en = isEn();
+stopPoll();
+App.store.setActive(id);
+if (App.components.infopanel && App.components.infopanel.close) App.components.infopanel.close();
+if (App.components.settings && App.components.settings.close) App.components.settings.close();
+searchState = null;
+pollCount = 0;
+const avaHtml = chat.avatar
+? '' + App.utils.initials(chat.name) + ''
+: '' + App.utils.initials(chat.name) + '';
+const isSaved = chat.id.startsWith('c_saved_');
+pane().innerHTML =
+'' +
+'' + icon('back') + '' +
+avaHtml +
+'' + esc(chat.name) + '' +
+'' + esc(chat.status || chat.subtitle || '') + '' +
+'' + icon('search') + '' +
+'' + icon('more') + '' +
+'' +
+'' +
+'' +
+'' + icon('close') + '' +
+'' + (en ? 'Loading…' : 'Загрузка…') + '' +
+'' +
+'' +
+'' + icon('close') + '' +
+'';
+pane().classList.add('open');
+$('mobileBackBtn').addEventListener('click', () => {
+stopPoll();
+App.store.setActive(null);
+pane().classList.remove('open');
+});
+document.querySelectorAll('[data-info]').forEach(el =>
+el.addEventListener('click', () => App.components.infopanel.open(chat.id)));
+$('hSearch').addEventListener('click', toggleSearch);
+$('csClose').addEventListener('click', toggleSearch);
+$('csInput').addEventListener('input', e => runSearch(chat, e.target.value));
+$('csInput').addEventListener('keydown', e => { if (e.key === 'Enter') nextMatch(1); });
+$('hMore').addEventListener('click', e => headerMenu(e, chat, isSaved));
+$('rsClose').addEventListener('click', () => App.components.inputbar.clearReply());
+try {
 await App.store.loadMessages(chat.id);
+} catch (e) {
+$('msgsInner').innerHTML = '' + (en ? 'Could not load messages' : 'Не удалось загрузить сообщения') + '';
+}
+renderMessages(chat);
+App.components.inputbar.mount($('inputbar'), chat);
+App.store.clearUnread(chat.id);
+chat.unread = 0;
 App.components.chatlist.render(App.store.state.filter);
-}).catch(err => App.utils.toast(err.message));
+startPoll(chat);
+}
+function startPoll(chat) {
+stopPoll();
+let lastTs = 0;
+for (const m of App.store.getMessages(chat.id))
+if (m.ts > lastTs) lastTs = m.ts;
+const tick = async () => {
+if (App.store.state.activeId !== chat.id) { stopPoll(); return; }
+try {
+const d = await App.api.messages(chat.id, lastTs);
+const fresh = App.store.mergeMessages(chat.id, d.messages);
+for (const m of fresh) {
+appendMessage(chat, m);
+if (m.ts > lastTs) lastTs = m.ts;
+}
+if (fresh.length) {
+App.store.clearUnread(chat.id);
+chat.unread = 0;
+App.components.chatlist.render(App.store.state.filter);
+}
+const ty = await App.api.getTyping(chat.id);
+renderTyping(chat, (ty && ty.typing) || []);
+pollCount++;
+if (pollCount % 3 === 0) {
+try {
+const keepFilter = App.store.state.filter;
+await App.store.loadChats();
+const updatedChat = App.store.getChat(chat.id);
+if (updatedChat) Object.assign(chat, updatedChat);
+const ae = document.activeElement;
+if (!ae || ae.id !== 'search') App.components.chatlist.render(keepFilter);
+} catch (e) {}
+}
+} catch (e) {}
+};
+pollTimer = setInterval(tick, 1800);
+tick();
+}
+function renderTyping(chat, typing) {
+const s = $('cstatus');
+const en = isEn();
+if (!s || App.store.state.activeId !== chat.id) return;
+if (typing.length) {
+const names = typing.map(t => (t.name || '').split(' '));
+s.textContent = en ? (names + ' is typing...') : (names + ' печатает...');
+s.classList.add('typing');
+} else {
+s.textContent = chat.status || chat.subtitle || '';
+s.classList.remove('typing');
+}
+}
+function headerMenu(e, chat, isSaved) {
+e.stopPropagation();
+closeMenu();
+const en = isEn();
+const menu = App.utils.el(
+'' +
+'' + icon('search') + (en ? 'Info & Settings' : 'Инфо и управление') + '' +
+'' + icon('mute') + (chat.muted ? (en ? 'Unmute' : 'Включить звук') : (en ? 'Mute' : 'Без звука')) + '' +
+(!isSaved ? '' + icon('close') + (en ? 'Delete chat' : 'Удалить чат') + '' : '') +
+'');
+const r = e.currentTarget.getBoundingClientRect();
+menu.style.top = (r.bottom + 6) + 'px';
+menu.style.right = (window.innerWidth - r.right) + 'px';
+$('overlay').appendChild(menu);
+menu.addEventListener('click', async ev => {
+const a = ev.target.closest('button') && ev.target.closest('button').dataset.a;
+closeMenu();
+if (a === 'info') App.components.infopanel.open(chat.id);
+if (a === 'mute') {
+App.store.toggleMute(chat.id).then(() => {
+open(chat.id);
+App.components.chatlist.render(App.store.state.filter);
+});
+}
+if (a === 'delchat') {
+if (!confirm(en ? 'Delete this chat?' : 'Удалить этот чат?')) return;
+await App.api.deleteChat(chat.id);
+await App.store.loadChats();
+stopPoll();
+App.store.setActive(null);
+pane().classList.remove('open');
+App.components.chatlist.render(App.store.state.filter);
+App.utils.toast(en ? 'Chat deleted' : 'Чат удалён');
+}
+});
+}
+function renderMessages(chat) {
+const inner = $('msgsInner');
+const en = isEn();
+if (!inner) return;
+inner.innerHTML = '' + (en ? 'Today' : 'Сегодня') + '';
+for (const m of App.store.getMessages(chat.id)) {
+const b = App.components.bubbles.render(chat, m);
+wireBubble(b, chat, m);
+inner.appendChild(b);
+}
+scrollBottom();
+}
+function appendMessage(chat, m) {
+const inner = $('msgsInner');
+if (!inner || App.store.state.activeId !== chat.id) return;
+const mid = m.mid || m.id;
+if (mid && inner.querySelector('.msg[data-mid="' + mid + '"]')) return;
+const b = App.components.bubbles.render(chat, m);
+wireBubble(b, chat, m);
+inner.appendChild(b);
+App.components.bubbles.animateTicks(b);
+scrollBottom();
+}
+function wireBubble(bubbleEl, chat, m) {
+bubbleEl.addEventListener('contextmenu', e => {
+e.preventDefault();
+msgMenu(e, chat, m);
+});
+}
+function openDeleteChoice(chat, m, canDeleteForAll) {
+const en = isEn();
+const back = $('modalback');
+back.classList.add('open');
+back.innerHTML =
+'' +
+'' + (en ? 'Delete message?' : 'Удалить сообщение?') + '' +
+'' + (en ? 'Choose how to delete this message' : 'Выберите способ удаления сообщения') + '' +
+'' +
+(canDeleteForAll
+? '' + (en ? 'Delete for everyone' : 'Удалить у всех') + ''
+: '') +
+'' + (en ? 'Delete for me' : 'Удалить у себя') + '' +
+'' + (en ? 'Cancel' : 'Отмена') + '' +
+'' +
+'';
+const closeDel = () => { back.classList.remove('open'); back.innerHTML = ''; };
+const mid = m.mid || m.id;
+$('delCancelBtn').onclick = closeDel;
+back.onclick = ev => { if (ev.target === back) closeDel(); };
+$('delForMeBtn').onclick = async () => {
+closeDel();
+await App.api.deleteMessage(mid, { forMeOnly: true });
+await App.store.loadMessages(chat.id);
+renderMessages(chat);
+App.components.chatlist.render(App.store.state.filter);
+};
+if ($('delForAllBtn')) {
+$('delForAllBtn').onclick = async () => {
+closeDel();
+await App.api.deleteMessage(mid, { forMeOnly: false });
+await App.store.loadMessages(chat.id);
+renderMessages(chat);
+App.components.chatlist.render(App.store.state.filter);
+};
+}
+}
+function msgMenu(e, chat, m) {
+closeMenu();
+const en = isEn();
+const canCopy = m.kind === 'text' && m.text;
+const own = (m.from === (App.me && App.me.username)) || !!m.out;
+const isChanAdmin = chat.type === 'channel' && !!chat.canPost;
+const canDeleteForAll = own || isChanAdmin;
+const menu = App.utils.el(
+'' +
+'' + icon('back') + (en ? 'Reply' : 'Ответить') + '' +
+'' + icon('send') + (en ? 'Forward' : 'Переслать') + '' +
+(canCopy ? '' + icon('check') + (en ? 'Copy text' : 'Копировать') + '' : '') +
+'' + icon('close') + (en ? 'Delete' : 'Удалить') + '' +
+'');
+menu.style.left = Math.min(e.clientX, window.innerWidth - 210) + 'px';
+menu.style.top = Math.min(e.clientY, window.innerHeight - 220) + 'px';
+$('overlay').appendChild(menu);
+menu.addEventListener('click', ev => {
+const btn = ev.target.closest('button');
+closeMenu();
+if (!btn) return;
+const a = btn.dataset.a;
+if (a === 'reply') {
+const sender = own ? (en ? 'You' : 'Вы') : (m.sender || chat.name);
+App.components.inputbar.setReply({ mid: m.mid || m.id, sender, text: m.text || kindText(m) });
+}
+if (a === 'forward') openForwardPicker(m);
+if (a === 'copy') {
+try { navigator.clipboard.writeText(m.text); App.utils.toast(en ? 'Copied' : 'Скопировано'); }
+catch (err) {}
+}
+if (a === 'delete') {
+openDeleteChoice(chat, m, canDeleteForAll);
 }
 });
 }
