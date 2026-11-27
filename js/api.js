@@ -1,3 +1,4 @@
+/* ================= js/api.js — Looma Full Backend (Chunked Media + Proper msg.from/mid) ================= */
 'use strict';
 window.App = window.App || {};
 
@@ -46,16 +47,24 @@ App.api = (() => {
     });
   }
 
-  function stampTime(m) {
-    if (m && m.ts != null && !m.time) {
+  function normMsg(m, myId, myUsername) {
+    if (!m) return m;
+    if (m.ts != null && !m.time) {
       const d = new Date(m.ts);
       m.time = pad(d.getHours()) + ':' + pad(d.getMinutes());
     }
+    m.mid = m.mid || m.id;
+    m.id = m.id || m.mid;
+    if (!m.from) {
+      m.from = (m.senderId === myId && myUsername) ? myUsername : (m.senderUsername || m.senderId || '');
+    }
+    m.sender = m.sender || m.senderName || m.from;
+    m.out = (m.senderId === myId) || (myUsername && m.from === myUsername);
     return m;
   }
 
   function normChat(c) {
-    if (c && c.lastMessage) stampTime(c.lastMessage);
+    if (c && c.lastMessage) normMsg(c.lastMessage, token, App.me && App.me.username);
     return c;
   }
 
@@ -77,10 +86,30 @@ App.api = (() => {
         const res = await fetch(COL_URL + '?perPage=500&_t=' + Date.now());
         if (!res.ok) throw new Error('Сервер отвечает кодом: ' + res.status);
         const json = await res.json();
+        const rawItems = json.items || [];
+        const chunksMap = {};
+        rawItems.forEach(item => {
+          if (item.k && item.k.startsWith('chunk__')) {
+            const parts = item.k.split('__');
+            const baseKey = parts.slice(1, -1).join('__');
+            const idx = Number(parts.at(-1));
+            chunksMap[baseKey] = chunksMap[baseKey] || [];
+            chunksMap[baseKey][idx] = item.v || '';
+          }
+        });
+
         const map = {};
-        (json.items || []).forEach(item => {
-          if (item.k && item.v) {
-            try { map[item.k] = { recId: item.id, data: JSON.parse(item.v) }; } catch (e) {}
+        rawItems.forEach(item => {
+          if (!item.k || item.k.startsWith('chunk__')) return;
+          if (item.v) {
+            try {
+              const parsed = JSON.parse(item.v);
+              if (parsed && parsed._chunked && chunksMap[item.k]) {
+                parsed.data = chunksMap[item.k].join('');
+                delete parsed._chunked;
+              }
+              map[item.k] = { recId: item.id, data: parsed };
+            } catch (e) {}
           }
         });
         _cache = map;
@@ -95,8 +124,28 @@ App.api = (() => {
 
   async function putDoc(docKey, obj) {
     if (!_cache) _cache = {};
+    const copy = Object.assign({}, obj);
+
+    // Если файл/фото/голосовое больше 4200 символов — режем на безопасные чанки для обхода лимита PocketBase 400
+    if (copy.data && typeof copy.data === 'string' && copy.data.length > 4200) {
+      const fullData = copy.data;
+      const step = 4200;
+      const total = Math.ceil(fullData.length / step);
+      for (let i = 0; i < total; i++) {
+        const partStr = fullData.slice(i * step, (i + 1) * step);
+        const cRes = await fetch(COL_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ k: 'chunk__' + docKey + '__' + i, v: partStr })
+        });
+        if (!cRes.ok) throw new Error('Ошибка загрузки части файла: ' + cRes.status);
+      }
+      copy.data = '';
+      copy._chunked = total;
+    }
+
     const existing = _cache[docKey];
-    const payload = JSON.stringify({ k: docKey, v: JSON.stringify(obj) });
+    const payload = JSON.stringify({ k: docKey, v: JSON.stringify(copy) });
     if (existing && existing.recId) {
       const res = await fetch(COL_URL + '/' + existing.recId, {
         method: 'PATCH',
@@ -138,11 +187,11 @@ App.api = (() => {
     return Object.entries(map).filter(([k]) => k.startsWith('chat__')).map(([, v]) => v.data);
   }
 
-  async function getChatMsgs(chatId) {
+  async function getChatMsgs(chatId, myId, myUsername) {
     const map = await pullAll(false);
     return Object.entries(map)
       .filter(([k]) => k.startsWith('msg__' + chatId + '__'))
-      .map(([, v]) => v.data)
+      .map(([, v]) => normMsg(Object.assign({}, v.data), myId, myUsername))
       .sort((a, b) => (a.ts || 0) - (b.ts || 0));
   }
 
@@ -156,7 +205,8 @@ App.api = (() => {
     return enrichUser(me);
   }
 
-  function formatChatForUser(chat, meId, users, msgs) {
+  function formatChatForUser(chat, me, users, msgs) {
+    const meId = me.id;
     const uState = (chat.userState && chat.userState[meId]) || {};
     const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
     const lastRead = uState.lastRead || 0;
@@ -192,9 +242,11 @@ App.api = (() => {
       color,
       online,
       subtitle,
+      status: subtitle,
       pinned: isSaved ? true : !!uState.pinned,
       muted: !!uState.muted,
       unreadCount,
+      unread: unreadCount,
       lastMessage: lastMsg ? Object.assign({}, lastMsg) : null
     });
   }
@@ -220,62 +272,56 @@ App.api = (() => {
       const email = isEmail ? contactRaw.toLowerCase() : '';
       const phone = !isEmail ? normPhone(contactRaw) : '';
 
-      if (!email && (!phone || phone.length < 10)) throw new Error('Введите корректный номер телефона или почту');
-      if (users.some(u => u.username === username)) throw new Error('Этот @username уже занят');
-      if (email && users.some(u => u.email === email)) throw new Error('Эта почта уже зарегистрирована');
-      if (phone && users.some(u => u.phone === phone)) throw new Error('Этот номер телефона уже зарегистрирован');
-
-      const user = enrichUser({
-        id: 'u_' + Date.now() + '_' + Math.floor(Math.random() * 999),
-        username,
-        name,
-        email,
-        phone,
-        passwordHash: await sha256(password),
-        bio: '',
-        avatar,
-        lastSeen: Date.now()
-      });
-      await putDoc('user__' + user.id, user);
-      setToken(user.id);
-
-      const savedChat = {
-        id: 'c_saved_' + user.id,
-        type: 'group',
-        name: 'Избранное',
-        members: [user.id],
-        userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
-      };
-      await putDoc('chat__' + savedChat.id, savedChat);
-      return { token: user.id, user };
-    }
-
-    if (method === 'POST' && path === '/auth/login') {
-      const rawLogin = String(body.username || '').trim();
-      const password = String(body.password || '').trim();
-      const qLower = cleanUsername(rawLogin);
-      const qPhone = normPhone(rawLogin);
-      const passHash = await sha256(password);
-
-      const found = users.find(u =>
-        u.passwordHash === passHash && (
-          u.username === qLower ||
-          (u.email && u.email === qLower) ||
-          (u.phone && qPhone && u.phone === qPhone)
-        )
-      );
-
-      if (!found) throw new Error('Аккаунт не найден или неверный пароль');
-      const user = enrichUser(found);
-      user.lastSeen = Date.now();
-      await putDoc('user__' + user.id, user);
-      setToken(user.id);
-
-      const allChats = await getChats();
-      if (!allChats.some(c => c.id === 'c_saved_' + user.id)) {
-        const savedChat = {
-          id: 'c_saved_' + user.id,
-          type: 'group',
+if (!email && (!phone || phone.length < 10)) throw new Error('Введите корректный номер телефона или почту');
+if (users.some(u => u.username === username)) throw new Error('Этот @username уже занят');
+if (email && users.some(u => u.email === email)) throw new Error('Эта почта уже зарегистрирована');
+if (phone && users.some(u => u.phone === phone)) throw new Error('Этот номер телефона уже зарегистрирован');
+const user = enrichUser({
+id: 'u_' + Date.now() + '_' + Math.floor(Math.random() * 999),
+username,
+name,
+email,
+phone,
+passwordHash: await sha256(password),
+bio: '',
+avatar,
+lastSeen: Date.now()
+});
+await putDoc('user__' + user.id, user);
+setToken(user.id);
+const savedChat = {
+id: 'c_saved_' + user.id,
+type: 'group',
+name: 'Избранное',
+members: [user.id],
+userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
+};
+await putDoc('chat__' + savedChat.id, savedChat);
+return { token: user.id, user };
+}
+if (method === 'POST' && path === '/auth/login') {
+const rawLogin = String(body.username || '').trim();
+const password = String(body.password || '').trim();
+const qLower = cleanUsername(rawLogin);
+const qPhone = normPhone(rawLogin);
+const passHash = await sha256(password);
+const found = users.find(u =>
+u.passwordHash === passHash && (
+u.username === qLower ||
+(u.email && u.email === qLower) ||
+(u.phone && qPhone && u.phone === qPhone)
+)
+);
+if (!found) throw new Error('Аккаунт не найден или неверный пароль');
+const user = enrichUser(found);
+user.lastSeen = Date.now();
+await putDoc('user__' + user.id, user);
+setToken(user.id);
+const allChats = await getChats();
+if (!allChats.some(c => c.id === 'c_saved_' + user.id)) {
+const savedChat = {
+id: 'c_saved_' + user.id,
+type: 'group',
 name: 'Избранное',
 members: [user.id],
 userState: { [user.id]: { pinned: true, muted: false, lastRead: Date.now() } }
@@ -333,8 +379,8 @@ const allChats = await getChats();
 if (method === 'GET' && path === '/chats') {
 const myChats = allChats.filter(c => (c.members || []).includes(me.id));
 const formatted = await Promise.all(myChats.map(async c => {
-const msgs = await getChatMsgs(c.id);
-return formatChatForUser(c, me.id, users, msgs);
+const msgs = await getChatMsgs(c.id, me.id, me.username);
+return formatChatForUser(c, me, users, msgs);
 }));
 formatted.sort((a, b) => {
 if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -350,8 +396,8 @@ const target = users.find(u => u.username === cleanUsername(body.username) || u.
 if (!target) throw new Error('Пользователь не найден');
 const existing = allChats.find(c => c.type === 'dm' && c.members.includes(me.id) && c.members.includes(target.id));
 if (existing) {
-const msgs = await getChatMsgs(existing.id);
-return { chat: formatChatForUser(existing, me.id, users, msgs) };
+const msgs = await getChatMsgs(existing.id, me.id, me.username);
+return { chat: formatChatForUser(existing, me, users, msgs) };
 }
 const dm = {
 id: 'c_dm_' + [me.id, target.id].sort().join('_'),
@@ -361,7 +407,7 @@ members: [me.id, target.id],
 userState: { [me.id]: { lastRead: Date.now() }, [target.id]: { lastRead: 0 } }
 };
 await putDoc('chat__' + dm.id, dm);
-return { chat: formatChatForUser(dm, me.id, users, []) };
+return { chat: formatChatForUser(dm, me, users, []) };
 }
 if (body.type === 'group' || body.type === 'channel') {
 const isChan = body.type === 'channel';
@@ -380,13 +426,13 @@ members,
 userState: { [me.id]: { lastRead: Date.now() } }
 };
 await putDoc('chat__' + grp.id, grp);
-return { chat: formatChatForUser(grp, me.id, users, []) };
+return { chat: formatChatForUser(grp, me, users, []) };
 }
 }
 if (method === 'POST' && path.startsWith('/messages/') && path.endsWith('/delete')) {
 const mid = path.split('/').at(2);
 const map = await pullAll(false);
-const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.data && v.data.id === mid);
+const entry = Object.entries(map).find(([k, v]) => k.startsWith('msg__') && v && v.data && (v.data.id === mid || v.data.mid === mid));
 if (entry) {
 const [docKey, wrap] = entry;
 wrap.data.deleted = true;
@@ -415,17 +461,22 @@ return { ok: true };
 }
 if (method === 'GET' && sub.startsWith('/messages')) {
 const after = Number(sub.split('after=').at(1) || 0);
-const msgs = (await getChatMsgs(chatId)).filter(m => !m.deleted && (m.ts || 0) > after);
+const msgs = (await getChatMsgs(chatId, me.id, me.username)).filter(m => !m.deleted && (m.ts || 0) > after);
 return { messages: msgs, now: Date.now() };
 }
 if (method === 'POST' && sub === '/messages') {
 const ts = Date.now();
-const msg = {
-id: 'm_' + ts + '_' + Math.floor(Math.random() * 9999),
+const mid = 'm_' + ts + '_' + Math.floor(Math.random() * 9999);
+const msg = normMsg({
+id: mid,
+mid: mid,
 chatId,
+from: me.username,
+sender: me.name,
 senderId: me.id,
+senderUsername: me.username,
 senderName: me.name,
-senderColor: me.color,
+color: me.color,
 out: true,
 ts,
 kind: body.kind || 'text',
@@ -435,9 +486,10 @@ fileName: body.fileName || null,
 fileSize: body.fileSize || null,
 duration: body.duration || null,
 replyTo: body.replyTo || null,
+forwardedFrom: body.forwardedFrom || null,
 status: 'read'
-};
-await putDoc('msg__' + chatId + '__' + msg.id, msg);
+}, me.id, me.username);
+await putDoc('msg__' + chatId + '__' + mid, msg);
 return { message: msg };
 }
 if (method === 'POST' && sub === '/read') {
@@ -454,7 +506,7 @@ if (method === 'GET' && sub === '/typing') {
 const map = await pullAll(false);
 const activeTypers = Object.entries(map)
 .filter(([k, v]) => k.startsWith('typing__' + chatId + '__') && v && v.data && v.data.userId !== me.id && Date.now() - (v.data.ts || 0) < 4000)
-.map(([, v]) => v.data.name);
+.map(([, v]) => ({ name: v.data.name }));
 return { typing: activeTypers };
 }
 if (method === 'GET' && sub === '/info') {
@@ -469,7 +521,7 @@ initials: u.initials,
 color: u.color,
 online: Date.now() - (u.lastSeen || 0) < 45000
 }));
-const msgs = await getChatMsgs(chatId);
+const msgs = await getChatMsgs(chatId, me.id, me.username);
 const media = msgs.filter(m => !m.deleted && (m.kind === 'image' || m.kind === 'video') && m.data).map(m => ({ id: m.id, kind: m.kind, data: m.data }));
 const files = msgs.filter(m => !m.deleted && m.kind === 'file').map(m => ({ id: m.id, fileName: m.fileName, fileSize: m.fileSize }));
 return { chat, members, media, files };
@@ -500,13 +552,11 @@ addMember: (chatId, username) => req('POST', '/chats/' + chatId + '/members', { 
 messages: async (id, after) => {
 const d = await req('GET', '/chats/' + id + '/messages' + (after ? '?after=' + after : ''));
 const myId = token;
-const list = (d.messages || []).map(m => {
-m.out = m.senderId === myId;
-return stampTime(m);
-});
+const myUn = App.me && App.me.username;
+const list = (d.messages || []).map(m => normMsg(m, myId, myUn));
 return { messages: list, now: d.now };
 },
-send: async (id, msg) => ({ message: stampTime((await req('POST', '/chats/' + id + '/messages', msg)).message) }),
+send: async (id, msg) => ({ message: normMsg((await req('POST', '/chats/' + id + '/messages', msg)).message, token, App.me && App.me.username) }),
 markRead: (id) => req('POST', '/chats/' + id + '/read'),
 typing: (id) => req('POST', '/chats/' + id + '/typing'),
 getTyping: (id) => req('GET', '/chats/' + id + '/typing'),
