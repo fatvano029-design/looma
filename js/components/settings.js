@@ -276,12 +276,16 @@ return;
 }
 App.store.updateSettings({ [key]: on });
 }));
-p.querySelectorAll('.swatch').forEach(sw =>
-sw.addEventListener('click', () => {
-App.store.updateSettings({ accent: sw.dataset.c });
-p.querySelectorAll('.swatch').forEach(x => x.classList.remove('on'));
-sw.classList.add('on');
-}));
+    p.querySelectorAll('.swatch').forEach(sw =>
+      sw.addEventListener('click', () => {
+        const c = sw.dataset.c;
+        document.documentElement.style.setProperty('--accent', c);
+        try { localStorage.setItem('looma_accent', c); } catch (e) {}
+        if (App.store && App.store.updateSettings) App.store.updateSettings({ accent: c });
+        p.querySelectorAll('.swatch').forEach(x => x.classList.remove('on'));
+        sw.classList.add('on');
+        App.utils.toast('Цвет акцента обновлён');
+      }));
 }
 function close() {
 const p = $('chatpane');
